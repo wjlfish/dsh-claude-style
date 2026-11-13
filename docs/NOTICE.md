@@ -20,3 +20,9 @@ mod's code, and is not endorsed by it.
 0.17.0 及其之前发布的版本以 MIT 发布，之后的版本适用这一许可。
 「钠 / Sodium」这个名字致敬 Minecraft 的 Sodium 渲染优化模组；本项目与
 CaffeineMC 没有关联，没有使用它的代码，也没有获得它的背书。
+
+本仓库（`wjlfish/dsh-claude-style`）是 wjlfish 基于
+`Nwflower/dsh-claude-style` 0.20.3 的二次开发版本，沿用原项目的全部许可条款；
+上游版权归 Nwflower 所有。This repository (`wjlfish/dsh-claude-style`) is
+wjlfish's secondary development edition of `Nwflower/dsh-claude-style` 0.20.3 and
+keeps every license term above; the upstream copyright stays with Nwflower.

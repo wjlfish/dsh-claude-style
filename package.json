@@ -80,13 +80,19 @@
   ],
   "license": "MIT",
   "author": "Nwflower",
+  "contributors": [
+    {
+      "name": "wjlfish",
+      "url": "https://github.com/wjlfish"
+    }
+  ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Nwflower/dsh-claude-style.git"
+    "url": "git+https://github.com/wjlfish/dsh-claude-style.git"
   },
-  "homepage": "https://github.com/Nwflower/dsh-claude-style#readme",
+  "homepage": "https://github.com/wjlfish/dsh-claude-style#readme",
   "bugs": {
-    "url": "https://github.com/Nwflower/dsh-claude-style/issues"
+    "url": "https://github.com/wjlfish/dsh-claude-style/issues"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-client-ui-primitives": ">=0.2.2-rc.1",

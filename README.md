@@ -6,6 +6,8 @@
 
 > **你的下一个 Claude Code Desktop ，何必是Claude Code。**
 
+> **本仓库是 wjlfish 的二次开发版本**，基于 [Nwflower/dsh-claude-style](https://github.com/Nwflower/dsh-claude-style) 0.20.3 定制：侧栏顶栏落位与行高、首页用量卡与用量详情、账号面板用量指标、面板页标题缩放适配等。原项目的版权归 Nwflower 所有，许可与第三方声明见 [LICENSE](LICENSE) 与 [docs/NOTICE.md](docs/NOTICE.md)。
+
 [![简体中文](https://img.shields.io/badge/lang-%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-red.svg)](README.md)
 [![English](https://img.shields.io/badge/lang-English-blue.svg)](README.en.md)
 [![version](https://img.shields.io/npm/v/dsh-claude-style?style=flat&label=version&color=D97757)](https://www.npmjs.com/package/dsh-claude-style)
@@ -73,6 +75,7 @@ dsh-claude-style
 ```bash
 dsh plugin --profile web add dsh-claude-style                    # npm 包（推荐）
 dsh plugin --profile web add Nwflower/dsh-claude-style#dist      # GitHub 发布分支
+dsh plugin --profile web add wjlfish/dsh-claude-style#dist       # 本仓库的二次开发版本
 ```
 
 也可从[插件市场](https://github.com/dsh-market/dsh-market)或 dsh-web-all 的皮肤中心安装。同一时刻只启用一个主题；
