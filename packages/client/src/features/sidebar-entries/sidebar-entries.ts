@@ -13,6 +13,7 @@ import type { FeatureUi } from '../../core/feature'
 import type manifest from './sidebar-entries.manifest'
 import { copy } from './copy'
 import { openPanelFromAction } from '../../shared/panel-actions'
+import { placeBesideLauncher } from './more-placement'
 
 /**
  * The sidebar's panel list as Claude's app keeps it: the reader picks which
@@ -31,8 +32,8 @@ const PANEL_SLOT = 'sidebar.panellist'
 /** The More menu's rows; the sidebar shows More while this list has any. */
 const ACTIONS_SLOT = 'sidebar.panellist.actions'
 /**
- * The list's own rows. The host wraps each row in a box of its own (0.2.2-alpha.3),
- * and the More launcher in another, so a row is read wherever it stands inside
+ * The list's own rows. The host wraps each row in a box of its own, and the
+ * More launcher in another, so a row is read wherever it stands inside
  * the list; the launcher is the one row that opens a menu, and it is no entry.
  */
 const PANEL_LIST_SELECTOR = 'nav[data-dsh-claude-part~="panel-list"]'
@@ -172,16 +173,21 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>) {
   /**
    * The last row of More, in a group of its own; its empty icon seat lines its
    * words up with the rows above. The row renders inside the host's card on
-   * every opening, so it stamps that card for the stylesheet before the first
-   * paint, and the card goes with the stamp when the menu closes.
+   * every opening, so it stamps that card for the stylesheet and seats it
+   * beside its launcher before the first paint, and the card goes with the
+   * stamp when the menu closes.
    */
   function EditSidebarRow({ entries, onDismiss }: HostPanelActionsProps) {
     const seat = React.useRef<HTMLSpanElement>(null)
     React.useLayoutEffect(() => {
       const card = seat.current?.closest(MENU_ROLE_SELECTOR) ?? null
-      if (card === null) return
+      if (!(card instanceof HTMLElement)) return
       card.setAttribute(MORE_MENU_ATTR, '')
-      return () => { card.removeAttribute(MORE_MENU_ATTR) }
+      const releasePlace = placeBesideLauncher(card)
+      return () => {
+        releasePlace()
+        card.removeAttribute(MORE_MENU_ATTR)
+      }
     }, [])
     return React.createElement(primitives.MenuItemButton, {
       separatorBefore: true,

@@ -1,32 +1,27 @@
 /**
  * The usage aggregation service the `usage` route reads, and the pass that fills
- * it.
+ * it. The dashboard needs cross-session token totals bucketed by day, which no
+ * host service publishes: the `tokenUsage` projection is per session and the
+ * session list carries only that session's own totals.
  *
- * The dashboard needs cross-session token totals bucketed by day, which no host
- * service publishes: the `tokenUsage` projection is per session and the session
- * list carries only that session's own totals. This module owns the pass and the
- * state; the four parts below own the sources and the shapes:
+ *   - `usage-ledger.ts` reads the cost-meter plugin's ledger, read-only.
+ *   - `usage-fold.ts` finds the session logs and folds them.
+ *   - `usage-record.ts` keeps each session's fold, so a deleted session keeps
+ *     its days.
+ *   - `usage-summary.ts` merges the two accounts by date and shapes the payload.
  *
- *   - `usage-ledger.ts` reads the cost-meter plugin's ledger, read-only, and
- *     declares the bucket shapes. Its days are the whole history the cost meter
- *     saw, every provider included.
- *   - `usage-fold.ts` finds the session logs and folds them, which is what covers
- *     every date the ledger does not record.
- *   - `usage-record.ts` keeps each session's fold: the account that outlives the
- *     log, so a deleted session keeps its days.
- *   - `usage-summary.ts` merges the two accounts by date, and shapes the payload.
- *
- * The two accounts are combined, never added: both describe the same days, so
- * each day keeps the account that recorded more of it and the fold answers for
- * every day the ledger left out. The ledger keeps no hour of a day, so that
- * histogram is the fold's on every one. A ledger that answers is published before
- * the fold starts, so a ledger the cost meter stopped updating still shows its
- * days at once.
+ * The two accounts are combined, never added: both describe the same days, so a
+ * day keeps the account that recorded more of it. The ledger keeps no hour of a
+ * day, so that histogram is the fold's on every day. A ledger answer is published
+ * before the fold starts, so a ledger the cost meter stopped updating still
+ * shows its days at once.
  *
  * A host that publishes cross-session usage totals, or keeps the usage of deleted
  * sessions, retires the matching path here.
  */
 import { PACKAGE_NAME } from '@dsh-claude-style/contracts/package'
+import { HOME_SESSION_SCOPE_ALL, HOME_SESSION_SCOPE_WORKSPACE } from '@dsh-claude-style/contracts/prefs'
+import type { HomeSessionScope } from '@dsh-claude-style/contracts/prefs'
 import { join, resolve } from 'node:path'
 import type { DshContext } from '@dsh-claude-style/engine/node/dsh'
 import { harnessPath } from '@dsh-claude-style/engine/node/harness-home'
@@ -55,13 +50,10 @@ const SLOW_PASS_FACTOR = 2
 
 /**
  * The least stretch a pass that took `durationMs` leaves before the next one
- * may start.
- *
- * A pass that outlasts `USAGE_TTL_MS` would otherwise be stale the moment it
- * ended, and every request would start the next one with no idle stretch
- * between them: on a large history that is one core pegged folding the whole
- * corpus back to back. A pass's own length is the cheapest measure of what the
- * next one will cost, so twice that is the wait after it.
+ * may start. A pass that outlasts `USAGE_TTL_MS` would otherwise be stale the
+ * moment it ended and every request would start the next one, pegging a core on
+ * a large history; its own length is the cheapest measure of what the next one
+ * costs.
  */
 function recheckDelay(durationMs: number): number {
   return Math.max(USAGE_TTL_MS, durationMs * SLOW_PASS_FACTOR)
@@ -85,8 +77,7 @@ function hoursOf(days: ReadonlyMap<string, DayBuckets>): number[] {
 /**
  * Whether this pass's entries differ from the ones the document holds, which is
  * the whole reason to write it again: a session folded afresh, one the record did
- * not know, one it no longer holds, or one whose log went away since the document
- * was written, whose fingerprint goes with it.
+ * not know, one it no longer holds, or one whose log went away.
  */
 function recordChanged(stored: ReadonlyMap<string, RecordSession>, sessions: ReadonlyMap<string, RecordSession>, read: number): boolean {
   if (read > 0 || stored.size !== sessions.size) return true
@@ -105,11 +96,26 @@ interface UsageState {
   error?: string
 }
 
+/** One scope's cache and pass; changing the dashboard's filter never invalidates another scope's answer. */
+interface UsageSlot {
+  state: UsageState | null
+  pending: Promise<UsageSummary | null> | null
+  nextAt: number
+}
+
+interface SessionPersistence {
+  list(): Promise<{ header: { id: string, origin?: string } }[]>
+}
+
+interface WorkspaceRegistry {
+  readonly archivedSessionIds: readonly string[]
+  list(): { id: string, sessionIds: readonly string[] }[]
+}
+
 /**
  * Build the usage service.
  *
- * @param ctx - the host plugin context, used for its home path and the
- *   `sessionQuery` service.
+ * @param ctx - the host plugin context, used for its home path.
  * @returns the service: `snapshot()` reads the current state, `refresh()`
  *   recomputes in the background.
  */
@@ -117,14 +123,21 @@ export function createUsage(ctx: DshContext) {
   // The harness home, resolved per read through the one shared accessor.
   const home = () => harnessPath(ctx)
 
-  let state: UsageState | null = null
-  let pending: Promise<UsageSummary | null> | null = null
-  /** When the finished value may be folded again, on the host's clock. */
-  let nextAt = 0
+  const slots = new Map<string, UsageSlot>()
   let disposed = false
 
+  function slotFor(scope: HomeSessionScope, workspaceId: string) {
+    const key = scope === HOME_SESSION_SCOPE_WORKSPACE ? `${scope}:${workspaceId}` : scope
+    let slot = slots.get(key)
+    if (slot === undefined) {
+      slot = { state: null, pending: null, nextAt: 0 }
+      slots.set(key, slot)
+    }
+    return slot
+  }
+
   /** Fold every session whose log changed since the record was written. */
-  async function computeLocal(logs: SessionLog[], ledgerDays: ReadonlyMap<string, DayBuckets> | null) {
+  async function computeLocal(logs: SessionLog[], ledgerDays: ReadonlyMap<string, DayBuckets> | null, allowed: ReadonlySet<string> | null, scope: HomeSessionScope) {
     const record = readRecord(ctx)
     const sessions = new Map<string, RecordSession>()
     let read = 0
@@ -147,10 +160,8 @@ export function createUsage(ctx: DshContext) {
         events = await readEvents<UsageEvent>(ctx, PACKAGE_NAME, log.id, 'the usage roll-up')
       } catch (error) {
         // One log the host cannot read must not void the pass: the fingerprints
-        // landed for every other session are what make the next pass cheap, and
-        // a pass that aborts here leaves the record unbuilt, so the corpus is
-        // folded in full on every request (D12: the catch keeps one session's
-        // failure from the rest).
+        // landed for every other session make the next pass cheap, and an abort
+        // here would fold the whole corpus on every request (D12).
         failed += 1
         firstFailure = firstFailure ?? `${log.id}: ${messageOf(error)}`
         if (stored !== undefined) sessions.set(log.storedName, stored)
@@ -171,9 +182,8 @@ export function createUsage(ctx: DshContext) {
       ctx.logger?.warn?.(`${PACKAGE_NAME}: ${failed} session log(s) left out of the usage roll-up; the rest are recorded (first: ${firstFailure})`)
     }
     // A session whose log is gone keeps the days the record holds for it: they
-    // are the only account of those days left, and no fold can bring them back.
-    // An entry with no day goes: the log is gone, so nothing compares
-    // against it and it holds nothing to keep.
+    // are the only account of those days left. An entry with no day goes, since
+    // nothing compares against it and it holds nothing to keep.
     for (const [id, stored] of record.sessions) {
       if (!sessions.has(id) && stored.days.size > 0) sessions.set(id, { days: stored.days })
     }
@@ -182,11 +192,15 @@ export function createUsage(ctx: DshContext) {
     const recorded = !disposed && record.writable && (record.mustWrite || recordChanged(record.sessions, sessions, read))
       ? writeRecord(ctx, sessions, new Set(logs.map((log) => log.storedName)))
       : sessions
-    const merge = mergeLedgerFold(ledgerDays, recorded)
+    // Filtering happens after the full record has been updated, so switching
+    // scopes never deletes another session's fingerprint or retained history.
+    const account = allowed === null ? recorded : new Map([...recorded].filter(([id]) => allowed.has(id)))
+    const scopedLedger = scope === HOME_SESSION_SCOPE_ALL ? ledgerDays : null
+    const merge = mergeLedgerFold(scopedLedger, account)
     // The source names what answered: with no ledger at all the fold is the
     // whole account, and saying `cost-meter+local` there would credit a plugin
     // that is not installed.
-    const source = ledgerDays === null
+    const source = scopedLedger === null
       ? LOCAL_SOURCE
       : merge.folded ? `${LEDGER_SOURCE}+${LOCAL_SOURCE}` : LEDGER_SOURCE
     const summary = summarize(
@@ -196,78 +210,95 @@ export function createUsage(ctx: DshContext) {
       merge.days.size === 0 ? undefined : hoursOf(merge.days),
       { sessionIds: merge.sessionIds },
     )
+    // Active scopes count every main session whose log exists, including one
+    // that has not settled usage yet; a date range still unions its own days.
+    const shaped = allowed === null ? summary : { ...summary, totals: { ...summary.totals, sessions: allowed.size } }
+    const allIds = new Set<string>()
+    for (const [id, entry] of recorded) if (entry.days.size > 0) allIds.add(id)
+    for (const buckets of ledgerDays?.values() ?? []) for (const id of buckets.sessionIds ?? []) allIds.add(id)
     if (sessions.size === 0 && failed > 0) {
-      return { ...summary, unavailable: true, reason: 'session-query-unavailable' }
+      return { ...shaped, scope, totalSessions: allIds.size, unavailable: true, reason: 'session-query-unavailable' }
     }
-    return { ...summary, read, failed, sessions: logs.length }
+    return { ...shaped, scope, totalSessions: allIds.size, read, failed, sessions: logs.length }
   }
 
   /**
    * @param publish - receives an answer that is already worth serving while the
    *   rest of the pass is still running.
    */
-  async function compute(publish: (partial: UsageSummary) => void): Promise<UsageSummary> {
+  async function compute(publish: (partial: UsageSummary) => void, scope: HomeSessionScope, workspaceId: string): Promise<UsageSummary> {
     const root = resolve(join(home(), 'sessions'))
     // The walk is the store's own readdir/stat, awaited: listing a large
     // history must not hold the event loop.
     const logs = await listSessionLogs(root)
     const ledgerDays = readLedger(home(), ctx.logger)
+    let allowed: Set<string> | null = null
+    if (scope !== HOME_SESSION_SCOPE_ALL) {
+      const persistence = ctx.get('sessionPersistence') as SessionPersistence | null | undefined
+      const stored = persistence === null || persistence === undefined ? [] : await persistence.list()
+      const originById = new Map(stored.map((entry) => [entry.header.id, entry.header.origin]))
+      const registry = ctx.get('workspaceRegistry') as WorkspaceRegistry | null | undefined
+      const archived = new Set(registry?.archivedSessionIds ?? [])
+      let selected = logs.filter((log) => log.storedName !== '' && originById.get(log.id) !== 'subagent' && !archived.has(log.id))
+      if (scope === HOME_SESSION_SCOPE_WORKSPACE) {
+        const workspace = registry?.list().find((entry) => entry.id === workspaceId)
+        const members = new Set(workspace?.sessionIds ?? [])
+        selected = selected.filter((log) => members.has(log.id))
+      }
+      allowed = new Set(selected.map((log) => log.storedName))
+    }
 
-    if (ledgerDays !== null && ledgerDays.size > 0) {
-      // The ledger is the wider account: it saw every provider, so it answers
-      // for the older days whether or not their logs are still stored. Hand its
-      // own answer over before the fold runs, so a stale ledger shows the whole
-      // history at once and the uncovered days land a moment later.
+    if (scope === HOME_SESSION_SCOPE_ALL && ledgerDays !== null && ledgerDays.size > 0) {
+      // Only the unfiltered scope may publish the ledger as a partial answer.
       const sessionIds = new Set<string>()
       for (const buckets of ledgerDays.values()) {
         for (const id of buckets.sessionIds ?? []) sessionIds.add(id)
       }
-      publish({ ...summarize(ledgerDays, sessionIds.size, LEDGER_SOURCE), sessions: logs.length })
+      publish({ ...summarize(ledgerDays, sessionIds.size, LEDGER_SOURCE), scope, totalSessions: sessionIds.size, sessions: logs.length })
     }
-    return await computeLocal(logs, ledgerDays) as UsageSummary
+    return await computeLocal(logs, ledgerDays, allowed, scope) as UsageSummary
   }
 
   /**
    * Start a pass unless one is running or the finished one is still inside its
-   * stretch.
-   *
-   * The stretch is the pass's own length when that outlasts the base period
-   * (recheckDelay), so a large history cannot fold back to back; a request from
-   * a page that polls faster than the period changes nothing.
+   * stretch, which is the pass's own length when that outlasts the base period
+   * (recheckDelay), so a large history cannot fold back to back.
    */
-  function refresh(): Promise<UsageSummary | null> {
+  function refresh(scope: HomeSessionScope = HOME_SESSION_SCOPE_ALL, workspaceId = ''): Promise<UsageSummary | null> {
+    const slot = slotFor(scope, workspaceId)
     if (disposed) return Promise.resolve(null)
-    if (pending !== null) return pending
-    if (state !== null && Date.now() < nextAt) return Promise.resolve(state.value)
-    state = state === null ? { value: null, computing: true } : { ...state, computing: true }
+    if (slot.pending !== null) return slot.pending
+    if (slot.state !== null && Date.now() < slot.nextAt) return Promise.resolve(slot.state.value)
+    slot.state = slot.state === null ? { value: null, computing: true } : { ...slot.state, computing: true }
     const startedAt = Date.now()
     /** End the pass, and hold the next one off by what this one cost. */
     const finish = () => {
-      pending = null
+      slot.pending = null
       const finishedAt = Date.now()
-      nextAt = finishedAt + recheckDelay(finishedAt - startedAt)
+      slot.nextAt = finishedAt + recheckDelay(finishedAt - startedAt)
     }
-    pending = compute((partial: UsageSummary) => {
-      if (!disposed) state = { value: partial, computing: true }
-    }).then(
+    slot.pending = compute((partial: UsageSummary) => {
+      if (!disposed) slot.state = { value: partial, computing: true }
+    }, scope, workspaceId).then(
       (value): UsageSummary | null => {
         finish()
         if (disposed) return value
-        state = { value, computing: false }
+        slot.state = { value, computing: false }
         return value
       },
       (error): UsageSummary | null => {
         finish()
-        if (!disposed) state = { value: state?.value ?? null, computing: false, error: messageOf(error) }
+        if (!disposed) slot.state = { value: slot.state?.value ?? null, computing: false, error: messageOf(error) }
         return null
       },
     )
-    return pending ?? Promise.resolve(null)
+    return slot.pending ?? Promise.resolve(null)
   }
 
   return {
-    /** The current state: a value, a computing flag, and the last error if any. */
-    snapshot() {
+    /** The current state for one scope: a value, a computing flag, and the last error if any. */
+    snapshot(scope: HomeSessionScope = HOME_SESSION_SCOPE_ALL, workspaceId = '') {
+      const state = slotFor(scope, workspaceId).state
       return state === null
         ? { ok: true, value: null, computing: false }
         : { ok: true, value: state.value, computing: state.computing === true, error: state.error }

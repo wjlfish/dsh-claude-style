@@ -1,38 +1,15 @@
 #!/usr/bin/env node
 /**
- * e2e.mjs — the end-to-end lane: a real `dsh web` with this checkout's plugin,
- * a scripted model service, and a browser on the page (D77).
- *
- * The smoke's stand-in page reproduces the structure its author knows; this lane
- * runs the assembled client and asserts what only it shows — that a scripted
- * answer renders as the reader sees it, that a scripted tool call becomes a row
- * with its result, that the conversation never jumps or slides backward while
- * the answer streams in, that the send flight hands the reader's words over
- * without a blank frame, and that both palettes capture the README frame's own
- * picture with nothing personal in it. The `contract` scenario walks packages/contracts/src/table.ts against the same page, so
- * each host literal the skin depends on is checked where it lives (D3), and the
- * `importance` scenario holds every `!important` the skin writes to one the page
- * needs (packages/testing/importance.mjs, D9).
- *
- * This file is the runner: it boots each scenario's instance, samples the page
- * once per frame while the turn runs, and writes the evidence of a failure. The
- * scenarios are the table in packages/testing/scenarios.mjs.
- * Every scenario runs against its own scratch instance, so nothing a scenario
- * writes can reach another. The instances stand beside each other: the walk runs
- * several scenarios at once (DEFAULT_JOBS, `--jobs` to change it), each in a
- * scratch home of its own, over one browser the lane starts for the whole walk.
- *
- * Usage: node packages/testing/e2e.mjs [--scenario <name>[,<name>…]] [--shard <index>:<total>] [--jobs <n>] [--headed] [--out <dir>] [--delay <ms>]
- *        --scenario names what to run; without it the walk is every scenario in
- *        the table (packages/testing/scenarios.mjs) but the parked pair below.
- *        --shard takes one slice of that walk, so several runs hold the whole
- *        of it between them (D77); a slice runs one scenario at a time, since
- *        the cloud's own parallelism is the shards.
+ * Run real `dsh web` scenarios against this checkout, the scripted model and a
+ * browser (D92), each in its own scratch home. Usage: `node packages/testing/e2e.mjs
+ * [--scenario <name>] [--shard <i>:<n>] [--jobs <n>] [--headed]`; shards run one
+ * scenario at a time.
  */
 import fs from 'node:fs'
 import { availableParallelism } from 'node:os'
 import path from 'node:path'
 import { launchBrowser } from './browser.mjs'
+import { argOf } from '../../scripts/shared/args.mjs'
 import { start, openPage, waitForSkin, dismissOverlays, firstRunOverlayText, DEFAULT_HOME } from './dsh-web.mjs'
 import { MARKS, measureFrameMs } from './lane.mjs'
 import { requireNewestHost } from './host-version.mjs'
@@ -42,9 +19,12 @@ import { startMockLlm } from './mock-llm.mjs'
 import { startMockPlatform, accountStore } from './mock-platform.mjs'
 import { loadModule } from '../../scripts/shared/ts-module.mjs'
 import { withLock } from '../../scripts/shared/verify-lock.mjs'
+import { runsPath } from '../../scripts/shared/debug-paths.mjs'
+import { featureCoverage } from '../../scripts/shared/feature-coverage.mjs'
+import { sanitizePage } from '../../scripts/shared/privacy.mjs'
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..')
-const DEFAULT_OUT = path.join(ROOT, '.debug', 'e2e', 'out')
+const DEFAULT_OUT = runsPath(ROOT, 'e2e', 'out')
 /**
  * How long one scenario may take. A wait that never settles would otherwise hold
  * the run until the runner's own limit: this deadline writes the failure evidence
@@ -84,14 +64,14 @@ function workerHomes(base, jobs, total) {
 }
 
 /**
- * The scenarios the default walk leaves out: the two that read the host's own
+ * The scenarios the default walk leaves out: the ones that read the host's own
  * statistics surfaces on a page the reader has moved (stats-position.mjs,
  * stats-overlay.mjs). This list is the only place a scenario is parked — the
  * default walk is every other entry of the table, derived in main() — so a
  * scenario added to the table runs by default, and a name here that the table
  * no longer holds stops the run.
  */
-const PARKED = new Set(['statsPosition', 'statsOverlay'])
+const PARKED = new Set(['statsPosition', 'statsOverlay', 'statsFooter'])
 
 /**
  * What the page looked like when a scenario failed: a picture, the console
@@ -102,7 +82,14 @@ const PARKED = new Set(['statsPosition', 'statsOverlay'])
 async function captureFailure(session, out, name, say) {
   const { page } = session
   const file = path.join(out, `${name}-failure.png`)
-  await page.screenshot({ path: file }).catch(() => {})
+  try {
+    await sanitizePage(expression => page.evaluate(expression))
+    await page.screenshot({ path: file })
+  } catch (error) {
+    // A refused capture leaves the diagnostic report available without storing
+    // a picture that failed the privacy sweep (D92).
+    say(`  failure capture unavailable: ${error.message.split('\n')[0]}\n`)
+  }
   const state = await page.evaluate(() => {
     const input = document.querySelector('[data-composer-input]')
     return {
@@ -239,10 +226,23 @@ async function startTrace(page) {
       const column = scroller === null ? null : scroller.querySelector(host.flow)
       const lastRow = column === null ? null : column.lastElementChild
       const cardRect = card === null ? null : card.getBoundingClientRect()
+      const seatRect = card === null ? null : card.closest(host.composerSeat)?.getBoundingClientRect() ?? null
+      const statsLine = document.querySelector(host.statsLine)
+      const statsRect = statsLine === null || getComputedStyle(statsLine).visibility === 'hidden' ? null : statsLine.getBoundingClientRect()
       const scrollerRect = scroller === null ? null : scroller.getBoundingClientRect()
       const rowRect = lastRow === null ? null : lastRow.getBoundingClientRect()
+      const columnRect = column === null ? null : column.getBoundingClientRect()
+      // What the reader sees of everything already streamed: the column's layout
+      // top, the scroller's offset and the stream slide's transform in one
+      // number. A slide that keeps up with the growth holds this steady; one
+      // that cancels the host's pin and then re-carries more than arrived shows
+      // up here as the column moving down between two frames (stream-jitter.mjs).
+      frame.flowTop = columnRect === null ? null : Math.round(columnRect.top * 10) / 10
       frame.card = cardRect === null ? null : Math.round(cardRect.top * 10) / 10
       frame.cardBottom = cardRect === null ? null : Math.round(cardRect.bottom * 10) / 10
+      frame.seat = seatRect === null ? null : [Math.round(seatRect.top * 10) / 10, Math.round(seatRect.bottom * 10) / 10]
+      frame.stats = statsRect === null ? null : [Math.round(statsRect.top * 10) / 10, Math.round(statsRect.bottom * 10) / 10]
+      frame.statsMode = statsLine?.getAttribute(host.statsFooterLine) ?? null
       frame.lag = rowRect === null || scrollerRect === null ? null : Math.round((rowRect.bottom - scrollerRect.bottom) * 10) / 10
       if (ghost !== null && takeOff === null) {
         // The stand-in is a clone of the composer card appended to the page, so
@@ -346,7 +346,8 @@ async function runScenario(name, options) {
       const context = { page, session, url: host.url, home, trace: [], notes: {}, out: options.out }
       if (scenario.beforeSend !== undefined) await scenario.beforeSend(context)
       step('sending the prompt')
-      await startTrace(page)
+      // Performance scenarios supply their own probe for every measured round.
+      if (scenario.trace !== false) await startTrace(page)
       await sendPrompt(page, scenario.prompt)
       step('waiting for the turn to settle')
       // A scenario that acts while the turn runs, beside the wait rather than after it.
@@ -360,7 +361,7 @@ async function runScenario(name, options) {
       }
       step('asserting')
       const checks = await scenario.assert(context)
-      // An observation that differs is printed as a difference and fails nothing (D77).
+      // An observation that differs is printed as a difference and fails nothing (D92).
       for (const item of checks) say(`  ${item.ok ? '✓' : item.observation === true ? '△' : '✗'} ${item.name}${item.detail === '' ? '' : `  — ${item.detail}`}\n`)
       const failed = checks.filter((item) => !item.ok && item.observation !== true).length
       const observed = checks.filter((item) => !item.ok && item.observation === true)
@@ -395,7 +396,7 @@ async function runScenario(name, options) {
 /**
  * One slice of a walk: every `<total>`th name from `<index>`. The scenarios of a
  * walk are independent of one another, so slices taken this way cover the walk
- * exactly once between them however many runners hold it (D77).
+ * exactly once between them however many runners hold it (D92).
  */
 function shardOf(names, spec) {
   const at = spec.indexOf(':')
@@ -409,16 +410,15 @@ function shardOf(names, spec) {
 
 async function main() {
   const args = process.argv.slice(2)
-  const argOf = (flag) => {
-    const at = args.indexOf(`--${flag}`)
-    return at === -1 ? undefined : args[at + 1]
-  }
-  // The lane reads what the host draws; a host other than the pinned one gets no verdict (D77).
+  // The lane reads what the host draws; a host other than the pinned one gets no verdict (D92).
   requireNewestHost()
   // The timing table names the scenarios that hold it (D3), so the two lists are
   // checked against each other rather than kept in step by hand.
   const { E2E_SCENARIOS } = loadModule('packages/contracts/src/timing.ts')
   const known = Object.keys(SCENARIOS)
+  const claimed = [...new Set(Object.values(featureCoverage()).flatMap((row) => row.scenarios))]
+  const missing = claimed.filter((name) => !known.includes(name))
+  if (missing.length > 0) throw new Error(`feature manifests name scenarios the lane does not hold: ${missing.join(', ')}`)
   const unknown = E2E_SCENARIOS.filter((name) => !known.includes(name))
   const unnamed = known.filter((name) => !E2E_SCENARIOS.includes(name))
   if (unknown.length > 0 || unnamed.length > 0) {
@@ -509,3 +509,4 @@ withLock('e2e', 'e2e', main).catch((error) => {
   console.error(error)
   process.exit(1)
 })
+

@@ -1,6 +1,6 @@
 /**
  * The host-API cases: the sync-fault case drives a session list that throws, and
- * the desktop case walks the 0.1.7 footer — the host's own account row, the menu
+ * the desktop case walks the desktop footer — the host's own account row, the menu
  * it portals, the container the skin injects into that menu, and the settings
  * dialog the host's shortcut opens.
  */
@@ -126,6 +126,11 @@
       var frame = function () { return new Promise(function (resolve) { requestAnimationFrame(function () { resolve() }) }) }
       var cardFrames = []
       if (hostRow) hostRow.click()
+      // The pass that marks the card is requested from the mutation observer's
+      // microtask, ahead of this loop: let that microtask run, so the first
+      // sample reads the card the frame paints rather than the card as the host
+      // left it.
+      await Promise.resolve()
       for (var cardFrame = 0; cardFrame < 24; cardFrame++) {
         await frame()
         var card = document.querySelector('body > [role="menu"]')

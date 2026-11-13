@@ -103,12 +103,18 @@ export default {
     check('a view switch slides the pill to the newly active tab',
       under(pill.switched) && pill.switched.slides.indexOf('transform') !== -1 && pill.switched.x > pill.first.x,
       JSON.stringify(pill.switched), 'timing')
+    check('a desktop mark without a visible Windows overlay keeps the tabs in the conversation header',
+      pill.nonOverlay === true, JSON.stringify(pill.nonOverlay))
+    check('a visible overlay places the tabs in the caption band when the plate is reachable',
+      pill.overlay === true, JSON.stringify(pill.overlay))
+    check('a covered caption band gives the tabs back to the conversation header',
+      pill.covered === true, JSON.stringify(pill.covered))
     check('the pill slides whatever the system motion setting: no reduced-motion rule reaches it',
       pill.reducedMotionRules === 0, `${pill.reducedMotionRules} rules`)
     check('teardown takes the pill, its placement and the strip stamp off the view tabs', pill.left === false, JSON.stringify(pill.left))
     commonChecks(r)
   },
-  // The strip's row shape (0.2.1-rc.3): the host draws the tablist and the
+  // The strip's row with the overflow button: the host draws the tablist and the
   // overflow button in a row of its own and counts the tabs it keeps from that
   // row's width, so the row keeps the header's width while the plate inside it
   // hugs the tabs and the pill travels inside the plate.
@@ -157,11 +163,9 @@ export default {
     const laid = b.laid || {}
     const marks = laid.marks || {}
     const right = b.viewportRight - (b.controls + b.air)
-    /** The caption row's own middle for a 28px box; the title sits the skin's optical drop below it. */
+    /** The caption row's own middle for a 28px box, shared by the title and the controls. */
     const middle = Math.round((b.band - 28) / 2)
     const top = middle + b.titleDrop
-    // Where the row sits with the lift taken back out: the header's own inset.
-    const naturalRow = laid.row.y - parseFloat(laid.rowLift || '0')
     check('the caption row takes both sides: the title at the row\'s left, the two control clusters against the caption buttons',
       marks.band === 'title actions' && marks.title === true && marks.utilities === true && marks.corner === true &&
         laid.title.x === laid.row.x && laid.title.y === top &&
@@ -178,13 +182,29 @@ export default {
     check('the words the row carries are the window\'s own: a press on the title starts no selection',
       laid.titleSelect === 'none' && laid.headerSelect === 'none',
       JSON.stringify({ title: laid.titleSelect, header: laid.headerSelect }))
-    check('the title is handed the room left between its own edge and the controls once the strip\'s width is reserved, and the row it left keeps its gap under it',
+    check('the cluster the row keeps beside the title takes the caption row\'s next place, so the row the title leaves holds nothing it has to keep standing',
+      marks.trail === true && laid.preset.x === laid.title.right + b.air && laid.preset.y === middle + b.titleDrop &&
+        laid.trailLeft === laid.title.right + b.air + 'px' && laid.trailHit === true,
+      JSON.stringify({ marks: marks, title: laid.title, preset: laid.preset, trailLeft: laid.trailLeft, trailHit: laid.trailHit }))
+    check('the title is handed the room up to the cluster beside it rather than the width its own box holds, and the row it left starts at the title box without the host\'s old inset',
       laid.titleLeft === laid.row.x + 'px' &&
-        laid.titleMax === laid.utilities.x - b.air - ((laid.strip.right - laid.strip.x) + b.air) - laid.title.x + 'px' &&
-        laid.row.y === laid.title.y + 28 + b.gap && laid.rowPosition === 'relative' && laid.rowOffset === laid.rowLift &&
+        parseFloat(laid.titleMax) > laid.title.right - laid.title.x &&
+        laid.row.y === laid.title.y + 28 + b.rowGap && laid.rowPosition === 'relative' && laid.rowOffset === laid.rowLift &&
         laid.row.y === laid.rowLift.replace('px', '') * 1 + laid.header.y + parseFloat(laid.headerPaddingTop) &&
-        laid.preset.x === laid.row.x,
-      JSON.stringify({ left: laid.titleLeft, max: laid.titleMax, lift: laid.rowLift, offset: laid.rowOffset, row: laid.row, header: laid.header, preset: laid.preset, utilities: laid.utilities, strip: laid.strip }))
+        laid.headerPaddingTop === '0px',
+      JSON.stringify({ left: laid.titleLeft, max: laid.titleMax, box: laid.title.right - laid.title.x, lift: laid.rowLift, offset: laid.rowOffset, row: laid.row, header: laid.header, utilities: laid.utilities, strip: laid.strip }))
+    const names = b.names || {}
+    const before = names.before || {}
+    const long = names.long || {}
+    const short = names.short || {}
+    const again = names.again || {}
+    check('a session name longer than the one before widens the title again, and a name that returns after a shorter one is not left clipped at the shorter one\'s width',
+      before.width < long.width && short.width < long.width && again.width === long.width &&
+        long.max === again.max && parseFloat(long.max) > long.width,
+      JSON.stringify(names))
+    check('the cluster beside the title follows a name that grew back in the same pass, one air gap off the title\'s own end',
+      long.presetX === long.right + b.air && short.presetX === short.right + b.air && again.presetX === again.right + b.air,
+      JSON.stringify(names))
     const panelClosed = b.panelClosed || {}
     check('the right panel\'s collapse control is the skin\'s own, drawn in the header\'s row: it shows while the panel is open and hides with the panel, and the panel\'s own copy stays where the host drew it',
       laid.closeInline === 'inline-flex' && laid.closeShown !== 'none' &&
@@ -192,25 +212,34 @@ export default {
       JSON.stringify({ laid: { close: laid.closeInline, shown: laid.closeShown, host: laid.hostToggleDisplay }, closed: panelClosed }))
     const solo = b.solo || {}
     check('with the corner seat empty — the right sidebar is open — the cluster that is there still lifts, into the corner\'s own place',
-      solo.marks.band === 'title actions' && solo.marks.corner === false && solo.utilities.right === right,
+      solo.marks.band === 'title actions' && solo.marks.corner === false && solo.marks.trail === true && solo.utilities.right === right,
       JSON.stringify(solo))
     const tight = b.tight || {}
-    check('when the shell\'s own seat takes the row\'s left end, both sides stay in the header\'s row: no marker, no stamp, the row back at its own inset',
-      tight.marks.band === null && tight.marks.row === false && tight.marks.title === false &&
-        tight.marks.utilities === false && tight.marks.corner === false &&
-        tight.row.y === naturalRow && tight.title.y > b.band && tight.utilities.y > b.band,
-      JSON.stringify({ tight: tight, natural: naturalRow }))
     const off = b.off || {}
+    check('when the shell\'s own seat takes the row\'s left end, both sides stay in the header\'s row: no marker, no stamp, the row back at its own inset',
+      tight.marks.band === null && tight.marks.row === false && tight.marks.title === false && tight.marks.trail === false &&
+        tight.marks.utilities === false && tight.marks.corner === false &&
+        tight.row.y === (off.row || {}).y && tight.title.y > b.band && tight.utilities.y > b.band,
+      JSON.stringify({ tight: tight, off: off.row }))
+    const crowded = b.crowded || {}
+    const relaxed = b.relaxed || {}
+    check('a cluster too wide for the place beside the title keeps the header\'s row, and the title is handed that row\'s whole run',
+      crowded.marks.band === 'title actions' && crowded.marks.title === true && crowded.marks.trail === false &&
+        (crowded.preset.right - crowded.preset.x) > 120 && parseFloat(crowded.titleMax) > crowded.preset.right - crowded.preset.x,
+      JSON.stringify(crowded))
+    check('a step of room buys the cluster its place beside the title again, one air gap off the title\'s own end',
+      relaxed.marks.trail === true && relaxed.preset.x === relaxed.title.right + b.air,
+      JSON.stringify(relaxed))
     const back = b.back || {}
     check('switching the feature off hands the row back whole — the strip the other feature placed stays, and the cluster\'s own fade with it — and switching it on places both sides again',
-      off.marks.band === null && off.marks.title === false && off.marks.utilities === false && off.marks.corner === false &&
+      off.marks.band === null && off.marks.title === false && off.marks.trail === false && off.marks.utilities === false && off.marks.corner === false &&
         off.stripStamped === true && off.clusterMask !== 'none' &&
-        back.marks.band === 'title actions' && back.marks.title === true && back.marks.utilities === true &&
+        back.marks.band === 'title actions' && back.marks.title === true && back.marks.trail === true && back.marks.utilities === true &&
         back.titleHit === true && back.clusterMask === 'none',
       JSON.stringify({ off: off, back: back }))
     const left = b.left || {}
     check('taking the desktop shell\'s marker away leaves no band marker and no stamps behind',
-      left.band === null && left.row === false && left.title === false && left.utilities === false && left.corner === false,
+      left.band === null && left.row === false && left.title === false && left.trail === false && left.utilities === false && left.corner === false,
       JSON.stringify(left))
     commonChecks(r)
   },
@@ -407,6 +436,11 @@ export default {
       claude.base === '#ffffff' && claude.body === 'rgb(255, 255, 255)' && claude.account === 'rgb(255, 255, 255)' &&
         claude.popover === 'rgb(255, 255, 255)' && /Anthropic Serif Web Text/.test(claude.heading || ''),
       JSON.stringify(claude))
+    const system = hp.system || {}
+    check('System sans shares one proportional stack and leaves code monospace',
+      system.family === 'ui-sans-serif,system-ui,sans-serif' && String(system.heading).replace(/\s+/g, '') === system.family &&
+        /JetBrains Mono/.test(system.code || '') && /ui-monospace/.test(system.code || ''),
+      JSON.stringify(system))
     // A wallpaper under the Claude palette. The shell canvases stand down
     // and one fixed mask in the canvas colour lies over the wallpaper; the base
     // canvas the host paints its dialogs and cards with stays opaque, and so do
@@ -426,6 +460,10 @@ export default {
     check('the background opacity multiplies the wallpaper mask while the cards keep their paint',
       /^color\(srgb 1 1 1 \/ 0\.43\)$/.test(half.mask || '') && half.popover === claude.popover && half.search === claude.search,
       JSON.stringify(half))
+    const deepseek = hp.deepseekWallpaper || {}
+    check('the DeepSeek card uses the same opacity on its wallpaper mask',
+      /^color\(srgb 0\.984314 0\.988235 1 \/ 0\.43\)$/.test(deepseek.mask || '') && deepseek.popover === half.popover,
+      JSON.stringify(deepseek))
     check('with the wallpaper gone the skin\'s own fills are back and the mask is lifted',
       CLAUDE_FILLS.every(([key, value]) => claude[key] === value) && claude.sidebarFill === '#fafafa' &&
         claude.mask === 'rgba(0, 0, 0, 0)',

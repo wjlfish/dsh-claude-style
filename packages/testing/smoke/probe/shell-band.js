@@ -28,9 +28,9 @@
       var AIR = 8
       var BAND = 40
       var GAP = 8
-      // The skin's own optical drop below the caption row's middle: the title's
-      // text draws 20px in a 28px box, so the box sits 2px low to read centred.
-      var TITLE_DROP = 2
+      // The title and both control clusters share the caption row's middle.
+      var TITLE_DROP = 0
+      var ROW_GAP = 0
       var HEADER_TOP = 60
       var HEADER_INSET = 10
       var ROW_LEFT = 200
@@ -49,9 +49,13 @@
       // The desktop shell's two answers: the caption row is on the page, and
       // the Window Controls Overlay API reports the three caption buttons.
       document.documentElement.setAttribute('data-windows-titlebar', '')
+      // The overlay's measurement is authoritative when the host's alias differs.
+      document.documentElement.style.setProperty('--dsh-windows-titlebar-height', '56px')
+      // The real API is an EventTarget: view-tabs listens to `geometrychange` on it,
+      // so a plain object would fail the skin's own feature rather than the probe.
       Object.defineProperty(navigator, 'windowControlsOverlay', {
         configurable: true,
-        value: {
+        value: Object.assign(new EventTarget(), {
           visible: true,
           getTitlebarAreaRect: function () {
             return {
@@ -69,14 +73,14 @@
         'padding-top:' + HEADER_INSET + 'px;display:block'
       header.innerHTML = '<div class="_titleRow_b_1" style="display:flex;align-items:center;width:100%;height:30px">' +
         '<div class="_titleCluster_b_1" style="display:flex;align-items:center;flex:1 1 0%;gap:10px">' +
-        '<nav class="_crumbs_b_1" style="display:flex;height:' + TITLE_HEIGHT + 'px;width:180px">Session title</nav>' +
+        '<nav class="_crumbs_b_1" style="display:flex;height:' + TITLE_HEIGHT + 'px">Session title</nav>' +
         '<div class="_headerActions_b_1" style="width:60px;height:' + TITLE_HEIGHT + 'px">Preset</div></div>' +
         // The host's utilities seat, with the skin's own right-panel control in it,
         // the way the host's slot renders it: the pass shows or hides that node.
         '<div class="_headerUtilities_b_1" style="display:flex;width:114px;height:28px">' +
         '<button type="button" class="dsh-claude-rightbar-close" style="width:28px;height:28px">close</button></div>' +
         '<div class="_headerCorner_b_1" style="width:28px;height:28px"></div></div>' +
-        '<div class="_tabs_b_1" role="tablist" style="width:152px;height:26px"></div>'
+        '<div class="_tabs_b_1"><div class="_viewTabs_b_1" role="tablist" data-conversation-tabs="" style="width:152px;height:26px"></div></div>'
       document.body.insertBefore(header, document.body.firstChild)
       // The right panel's own collapse control, inside the panel it belongs to:
       // the pass leaves it alone while the skin's control shows in the header's row.
@@ -127,6 +131,7 @@
           band: header.getAttribute('data-dsh-header-band'),
           row: row.hasAttribute('data-dsh-header-row'),
           title: title.hasAttribute('data-dsh-header-title'),
+          trail: actions.hasAttribute('data-dsh-header-trail'),
           utilities: utilities.hasAttribute('data-dsh-header-actions'),
           corner: corner.hasAttribute('data-dsh-header-corner'),
         }
@@ -136,6 +141,7 @@
         air: AIR,
         band: BAND,
         gap: GAP,
+        rowGap: ROW_GAP,
         titleDrop: TITLE_DROP,
         headerTop: HEADER_TOP,
         headerInset: HEADER_INSET,
@@ -152,13 +158,16 @@
         utilities: box(utilities),
         corner: box(corner),
         preset: box(actions),
-        strip: box(strip),
+        // The plate the strip's row holds: the row itself spans the window.
+        strip: box(strip.querySelector('[data-conversation-tabs]')),
         row: box(row),
         header: box(header),
         headerDisplay: getComputedStyle(header).display,
         headerPaddingTop: getComputedStyle(header).paddingTop,
         titleLeft: title.style.getPropertyValue('--dsh-header-band-left'),
         titleMax: title.style.getPropertyValue('--dsh-header-band-max'),
+        trailLeft: actions.style.getPropertyValue('--dsh-header-band-left'),
+        trailMax: actions.style.getPropertyValue('--dsh-header-band-max'),
         utilitiesRight: utilities.style.getPropertyValue('--dsh-header-band-right'),
         cornerRight: corner.style.getPropertyValue('--dsh-header-band-right'),
         rowLift: row.style.getPropertyValue('--dsh-header-band-row-lift'),
@@ -175,6 +184,7 @@
         closeShown: getComputedStyle(closeButton).display,
         hostToggleDisplay: getComputedStyle(hostToggle).display,
         titleHit: hitAt(title),
+        trailHit: hitAt(actions),
         clusterMask: getComputedStyle(cluster).maskImage,
       }
       // The corner seat is empty while the right sidebar is open, and the
@@ -195,14 +205,60 @@
       await sleep(250)
       r.band.tight = { marks: marks(), title: box(title), utilities: box(utilities), corner: box(corner), row: box(row) }
       seat.remove()
+      // A cluster the place beside the title cannot hold keeps the row, and the
+      // title takes the row's whole run; a step of room buys the cluster its
+      // place back. A width change alone wakes no pass, so a node goes in and
+      // out of the row to ask for one.
+      var nudge = function () {
+        var mark = document.createElement('i')
+        row.appendChild(mark)
+        mark.remove()
+      }
+      actions.style.width = '500px'
+      nudge()
+      await sleep(250)
+      r.band.crowded = { marks: marks(), title: box(title), preset: box(actions), titleMax: title.style.getPropertyValue('--dsh-header-band-max') }
+      actions.style.width = '60px'
+      nudge()
+      await sleep(250)
+      r.band.relaxed = { marks: marks(), title: box(title), preset: box(actions), titleMax: title.style.getPropertyValue('--dsh-header-band-max') }
       // The switch hands the row back on its own, with the strip left in place,
       // and the placement comes back when it is switched on again.
       window.__pushForm({ headerBand: false })
       await sleep(250)
-      r.band.off = { marks: marks(), stripStamped: strip.hasAttribute('data-dsh-view-tabs'), clusterMask: getComputedStyle(cluster).maskImage }
+      r.band.off = { marks: marks(), row: box(row), headerPaddingTop: getComputedStyle(header).paddingTop, stripStamped: strip.hasAttribute('data-dsh-view-tabs'), clusterMask: getComputedStyle(cluster).maskImage }
       window.__pushForm({ headerBand: true })
       await sleep(250)
       r.band.back = { marks: marks(), title: box(title), utilities: box(utilities), titleHit: hitAt(title), clusterMask: getComputedStyle(cluster).maskImage }
+      // The name a session carries changes while the header stands: the host
+      // draws the crumb ellipsized inside the width the band last gave it, so a
+      // name longer than the one before has to widen the title again instead of
+      // keeping the width of the name it replaced.
+      var titleName = title.textContent
+      var SHORT = 'Short'
+      var LONG = 'A session name longer than the one before it'
+      var readName = function () {
+        var b = box(title)
+        return {
+          width: Math.round(b.right - b.x),
+          right: b.right,
+          max: title.style.getPropertyValue('--dsh-header-band-max'),
+          presetX: Math.round(actions.getBoundingClientRect().x),
+        }
+      }
+      var nameBefore = readName()
+      title.textContent = LONG
+      await sleep(250)
+      var nameLong = readName()
+      title.textContent = SHORT
+      await sleep(250)
+      var nameShort = readName()
+      title.textContent = LONG
+      await sleep(250)
+      var nameAgain = readName()
+      title.textContent = titleName
+      await sleep(250)
+      r.band.names = { before: nameBefore, long: nameLong, short: nameShort, again: nameAgain }
       // The panel closes: its own collapse control leaves the page with it, and
       // the skin's control goes back to hidden.
       panel.remove()
@@ -213,6 +269,7 @@
       header.remove()
       hostCluster.remove()
       document.documentElement.removeAttribute('data-windows-titlebar')
+      document.documentElement.style.removeProperty('--dsh-windows-titlebar-height')
       delete navigator.windowControlsOverlay
       await sleep(250)
       r.band.left = marks()

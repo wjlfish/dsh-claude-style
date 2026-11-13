@@ -144,10 +144,14 @@ card leaves unset.
 | `--dsw-alias-button-info-hover` | `accent-hover` | `#c46343` | `#eb9170` | `#3d56e9` | `#6a84ff` | host's own |  |
 | `--dsw-alias-interactive-bg-active` | `accent-active` | `rgba(246, 136, 98, 0.26)` | `rgba(217, 119, 87, 0.3)` | `rgba(95, 124, 255, 0.26)` | `rgba(77, 107, 254, 0.3)` | host's own |  |
 | `--dsh-claude-hover-bg` | `hover-wash` | `rgba(6, 6, 6, 0.08)` | `rgba(255, 255, 255, 0.08)` | `rgba(4, 4, 6, 0.08)` | `rgba(251, 255, 255, 0.08)` | `var(--dsw-alias-interactive-bg-hover)` | hover wash |
+| `--dsh-claude-status-unread` | literal | `#2a78d6` | `#2a78d6` | `#2a78d6` | `#2a78d6` | `#2a78d6` | the native unread background-completion reminder, independent of the brand accent |
+| `--dsh-claude-status-awaiting` | literal | `#fab219` | `#fab219` | `#fab219` | `#fab219` | `#fab219` | the sidebar's waiting-for-input yellow: approvals, plan reviews and questions |
+| `--dsh-claude-status-running` | literal | `#898781` | `#898781` | `#898781` | `#898781` | `#898781` | the sidebar's muted neutral running dot |
 | `--dsh-claude-field-ring` | literal | `#2a78d6` | `#2a78d6` | `#2a78d6` | `#2a78d6` | `var(--dsw-alias-brand-primary)` | the ring around a field the reader is renaming in: the session title's own editor, drawn from the selection blue |
 | `--dsw-focus-ring-color` | literal | `rgba(20, 20, 19, 0.45)` | `rgba(250, 249, 245, 0.60)` | `rgba(20, 20, 19, 0.45)` | `rgba(250, 249, 245, 0.60)` | host's own | the keyboard focus ring: the host's own `:focus-visible` rules paint it, and the skin's fallback ring reads it |
 | `--dsh-claude-inline-code-bg` | `code-wash` | `rgba(6, 6, 6, 0.05)` | `rgba(255, 255, 255, 0.05)` | `rgba(4, 4, 6, 0.05)` | `rgba(251, 255, 255, 0.05)` | `var(--dsw-alias-markdown-inline-code)` | inline code fill |
 | `--dsh-claude-inline-code-fg` | card `code` | `#161616` | `#fdfdfd` | `#0f1115` | `#eef1f8` | `var(--dsw-alias-label-primary)` | inline code ink |
+| `--dsh-claude-classic-code` | literal | `#943333` | `#e8a08a` | `#943333` | `#e8a08a` | `light-dark(#943333, #e8a08a)` | Claude 0.19.7's optional warm inline-code ink |
 | `--dsh-claude-link` | `link` | `#184f95` | `#8ab4f8` | `#3b56d9` | `#8fa4ff` | `var(--dsw-alias-link)` | markdown links |
 | `--dsh-claude-link-underline` | `link-underline` | `rgba(24, 79, 149, 0.6)` | `rgba(138, 180, 248, 0.6)` | `rgba(59, 86, 217, 0.6)` | `rgba(143, 164, 255, 0.6)` | `color-mix(in srgb, var(--dsw-alias-link) 60%, transparent)` | markdown link underline |
 | `--dsw-alias-markdown-code-block` | `code-block` | `#ffffff` | `#212121` | `#ffffff` | `#1b1e26` | host's own |  |
@@ -176,7 +180,21 @@ card leaves unset.
 | `--dsh-claude-inverse-ink` | `inverse-ink` | `#ffffff` | `#171717` | `#feffff` | `#11141a` | `var(--dsw-alias-label-primary)` | the model picker's group label ink |
 | `--dsh-claude-table-head` | `table-head` | `#f4f4f4` | `#282828` | `#f0f1f4` | `#22252d` | `var(--dsw-alias-bg-layer-2)` | table header row |
 | `--dsh-claude-ripple-ink` | `ink-3` | `#91888a` | `#9c9395` | `#848891` | `#8a92a3` | `var(--dsw-alias-label-secondary, #8a8a85)` | the new-conversation page's glyph field, and the wake a ripple leaves in it |
-| `--dsh-claude-data-ink` | literal | `#3b6ecf` | `#3b6ecf` | `#3b6ecf` | `#3b6ecf` | `var(--dsw-alias-link, #3b6ecf)` | the home page's data blue: the deepest step of the model chart's ramp and the ink the heat grid's levels are mixed from |
+| `--dsh-claude-data-ink` | literal | `#3b6ecf` | `#3b6ecf` | `#3b6ecf` | `#3b6ecf` | `var(--dsw-alias-link, #3b6ecf)` | the home heat grid's single data blue |
+| `--dsh-claude-data-0` | literal | `#3366b3` | `#82aaff` | `#3366b3` | `#82aaff` | `light-dark(#3366b3, #82aaff)` | the Models chart and legend's categorical colour 0 |
+| `--dsh-claude-data-1` | literal | `#c4571f` | `#f0a35e` | `#c4571f` | `#f0a35e` | `light-dark(#c4571f, #f0a35e)` | the Models chart and legend's categorical colour 1 |
+| `--dsh-claude-data-2` | literal | `#167552` | `#63c59a` | `#167552` | `#63c59a` | `light-dark(#167552, #63c59a)` | the Models chart and legend's categorical colour 2 |
+| `--dsh-claude-data-3` | literal | `#7651a8` | `#c5a3e0` | `#7651a8` | `#c5a3e0` | `light-dark(#7651a8, #c5a3e0)` | the Models chart and legend's categorical colour 3 |
+| `--dsh-claude-data-4` | literal | `#08798c` | `#55c5d8` | `#08798c` | `#55c5d8` | `light-dark(#08798c, #55c5d8)` | the Models chart and legend's categorical colour 4 |
+| `--dsh-claude-data-5` | literal | `#a43b68` | `#f08db6` | `#a43b68` | `#f08db6` | `light-dark(#a43b68, #f08db6)` | the Models chart and legend's categorical colour 5 |
+| `--dsh-claude-data-6` | literal | `#806000` | `#e3bd54` | `#806000` | `#e3bd54` | `light-dark(#806000, #e3bd54)` | the Models chart and legend's categorical colour 6 |
+| `--dsh-claude-data-7` | literal | `#ad4040` | `#ef8585` | `#ad4040` | `#ef8585` | `light-dark(#ad4040, #ef8585)` | the Models chart and legend's categorical colour 7 |
+| `--dsh-claude-data-8` | literal | `#326b67` | `#83c8be` | `#326b67` | `#83c8be` | `light-dark(#326b67, #83c8be)` | the Models chart and legend's categorical colour 8 |
+| `--dsh-claude-data-9` | literal | `#65616c` | `#b8b3bf` | `#65616c` | `#b8b3bf` | `light-dark(#65616c, #b8b3bf)` | the Models chart and legend's categorical colour 9 |
+| `--dsh-claude-context-messages` | literal | `#2b7de9` | `#2b7de9` | `#2b7de9` | `#2b7de9` | `var(--dsw-alias-link, #2b7de9)` | context messages: Claude Desktop's blue category |
+| `--dsh-claude-context-tools` | literal | `#ff6b2c` | `#ff6b2c` | `#ff6b2c` | `#ff6b2c` | `var(--dsw-alias-state-warning-primary, #ff6b2c)` | context system tools: Claude Desktop's orange category |
+| `--dsh-claude-context-mcp` | literal | `#00b894` | `#00b894` | `#00b894` | `#00b894` | `var(--dsw-alias-state-success-primary, #00b894)` | context MCP tools: Claude Desktop's green category |
+| `--dsh-claude-context-system` | literal | `#e9a400` | `#e9a400` | `#e9a400` | `#e9a400` | `var(--dsw-alias-state-warning-primary, #e9a400)` | context system prompt: Claude Desktop's yellow category |
 | `--dsh-claude-ripple-wave` | literal | `#3b6ef0` | `#7fa6ff` | `#3b6ef0` | `#7fa6ff` | `var(--dsw-alias-link, #3b6ef0)` | the front of a ripple in the new-conversation page's glyph field |
 | `--dsh-claude-scrollbar` | `scrollbar` | `rgba(213, 213, 213, 0.9)` | `rgba(62, 62, 62, 0.9)` | `rgba(209, 210, 213, 0.9)` | `rgba(55, 59, 64, 0.9)` | `var(--dsw-alias-border-l2)` | scrollbar thumb |
 | `--dsh-claude-scrollbar-hover` | `scrollbar-hover` | `rgba(138, 138, 138, 0.8)` | `rgba(113, 113, 113, 0.9)` | `rgba(134, 135, 138, 0.8)` | `rgba(105, 109, 115, 0.9)` | `var(--dsw-alias-label-caption)` | scrollbar thumb under the pointer |
@@ -213,6 +231,9 @@ blurs what lies behind it so its rows stay readable over a picture.
 Under the host typeface the skin's own faces fall back to the host's:
 `--dsh-claude-font-serif`, `-prose` and `-brand` to `--dsw-font-family` (the
 host carries no serif), `--dsh-claude-font-code` to `--ds-font-family-code`.
+System sans shares `ui-sans-serif, system-ui, sans-serif` across those
+proportional faces and the Markdown shorthands, while code keeps its own
+monospace stack and language fallback stays with the browser.
 
 The account-hold page keeps its own colours, reproducing a Claude screen. The
 reasoning slider and its trigger take the theme accent: the dot matrix and knob
@@ -254,6 +275,17 @@ page itself: no block of their own behind them, and they dim with a modal's mask
 like everything else. Their hover plate is the system's, a tint of the button
 glyph's colour.
 
+**The header's controls.** The conversation header's controls read as one row of
+plates, in the caption row and in the header's own row alike: a 28px square at an
+8px radius with a 16px glyph in the secondary ink, and the skin's hover plate
+under the pointer. The row divides into the session's actions and the panel
+switches: three actions — open-with, changes, more — stand 6px apart, a 16px
+hairline drawn on the first switch opens a 18px break, and the bottom-panel
+switch, the details switch and the right-panel switch follow at 6px. The
+open-with split carries no outline of its own; its app icon keeps the app's
+colour for the pointer and stands grey at rest, and the whole control takes one
+plate rather than one per half.
+
 ## Right sidebar · 右侧栏
 
 A panel docked in the right column keeps the host's own fill: it stands flush
@@ -268,6 +300,110 @@ grows, so a list taller than the pane was clipped at both ends, its first rows
 out of reach. The stack scrolls: the first entry's top margin and the last
 entry's bottom margin take the free space while the stack fits, and fall to
 zero once it does not, so the list starts at the top and scrolls to its end.
+
+**The conversation details rail.** The rail is the skin's own fixed column
+against the conversation column's right edge: 320px wide, a 16px left inset
+and one scroll inside, opened and retreated by the column's width (a 1360px window with an 860px column to open, 1180px or a 760px column to
+Retreat) and squeezing the chat while it stands. It starts under the conversation
+header: the header keeps the column's whole width, so its title and controls
+stand above the rail, and the body under it gives the rail its 320px. Its floor
+is the conversation column's own, or the bottom panel's top edge while that
+panel floats over the column's lower edge, so the rail never stands over it. The
+conversation header's details button opens and closes the rail. A column longer
+than the rail scrolls inside it with no scrollbar: a bar in the rail's last 10px
+would read as a second border beside the one between the column and the chat.
+
+The rail and the chat share one edge, and it travels. The rail's width grows out
+of the edge and gives it back over the same 300ms and the same curve the host
+animates its own columns with, while the chat body's outer margin does the same,
+so the two edges are one edge at every frame instead of the chat moving and the
+rail appearing after it. The rail is the clip: the body inside stands pinned to its
+right edge and holds still, and the width only uncovers or covers it. A rail on
+its way out keeps its words, stops reading the host and leaves the page once the
+width is back; a press that calls it in mid-exit turns the transition around
+where it stands. A reader who asked for no motion gets the rail and the chat in
+their new places at once.
+
+The column reads at one size on one rhythm. Every row, legend line and figure is
+13/20 on a 24px pitch, and a row with a mark is 28px tall around a 16px mark. A
+CJK glyph fills its em box where a Latin lowercase letter fills half of it, so a
+size that reads light in Latin reads a step heavier in Chinese; the column takes
+the smaller size and tells its levels apart by weight and ink. A section heading
+is 13/20 in weight 600 and is the column's only bold text; the primary ink goes
+to headings, row titles, the occupancy figure, the share column and a figure's
+value. Labels take the secondary ink; a row's detail, the token column and the
+room left take the tertiary one. The small size, 11.5/16, is kept for a row's
+trailing state, a background category's label, the fold control and the legend's
+caption. Sections use 16px vertical insets and a hairline on their top edge, and
+lengths stay on the 4px grid.
+
+Each section is an independent native disclosure with keyboard activation and a
+chevron beside its heading. Folding keeps its children mounted and its choice
+survives data refreshes. Environment, Context and the three lists start open;
+Session stats and Token usage are tables of figures and start folded. The closed
+heading shows a directory name, a context percentage and miniature meter, the
+output speed, the cost or an item count. A folded section stands on its heading's
+own line, 36px tall with 8px insets, and keeps the hairline above it like any
+other section. The chevron belongs to a folded section; on an open one it waits
+out of sight and returns under the pointer or on keyboard focus, leaving the
+heading clean at rest. A heading paints nothing under the pointer: it is the
+column's own division line, not a row of the list.
+
+A row is one line: a mark, a title, its detail after a middle dot, and a
+trailing state. The title gives way before the detail, which keeps its own width
+up to its share of the line, and the line's hint carries the whole reading. A
+row's hover plate stands 8px clear of its words on both sides. The trailing
+state is words in the state's ink, without an outline. The environment section
+starts at the top: a computer mark, a folder name with its parent path, a
+separate branch row, and the preset as its last row in the secondary ink, with
+the preset's description as its hint. A checkout already named by the working
+directory contributes only its branch. While the rail stands the header's own
+preset label steps aside, and it returns when the rail closes or retreats.
+
+The context bar is 6px tall. Messages are blue, system tools orange, MCP tools
+green and the system prompt yellow; instruction files, skills and runtime
+context use gray. Request tool names and retained message sources identify the
+parts, and surface replacements retire the contributions they cover. Parts are
+heuristic estimates proportionally calibrated to provider occupancy: the bar,
+token column and percentage column share that allocation, with percentages
+measured against the whole window. The figures carry no estimate mark; one
+caption under the legend says the parts are estimates and its tooltip explains
+the calibration. Free space is the window less occupancy.
+
+Outputs, jobs and subagents cover the latest human-prompted round. Tool results,
+background notices and automatic continuations keep that round. An older job or
+child that is still running remains visible until it ends; continuing an existing
+child in the current round brings it into that round. Team boards and bound change
+requests remain session-wide.
+
+A list shows two rows; the rest fold behind a quiet full-width control that
+names the count left, which keeps a long list from pushing the sections under it
+out of the column. A background category folds the same way, keeping its two
+leading rows. An output row names the file and the folder it lies in, and only a
+file the model presented carries a state word. Its mark is a single-stroke sheet
+in the row's own ink, with a picture frame for an image, so a coloured file-type
+badge never competes with the legend. With the rail standing the
+conversation's view switch shares the title's line at the row's right end,
+before the utilities, and the title truncates to the span left over.
+
+The two figures sections put a label on the left and a value on the right, one
+figure a row, so a long duration or token count keeps the row's width. Session
+stats holds how the session ran: turns and steps, output speed, first-token
+latency, model and tool time. Token usage holds what it spent: cost, cache hit
+and the four token buckets. A finished command keeps its row
+in Background tasks for its round, its status from the durable job records and
+its output from the log the command wrote. Running jobs and continuable children
+have a separate 28px stop target beside the row's disclosure or navigation button.
+One press asks for confirmation, a second requests cancellation, and blur cancels
+the confirmation. The pending control is disabled; a failed request reports its
+failure in the row and allows retry. Stop targets remain visible without hover
+and keep their keyboard focus ring. A finished command and a finished subagent keep their
+clock alone: their ending is what most rows report, so the word would be the
+row's loudest part. Only work running, stopping or failed carries a state word,
+the failed one in the error ink. The section's rows are filed under quiet eyebrow
+labels by kind — commands, subagents, team — and a group appears only when it has
+a row, folding past its second row like the sections above it, so the list stays
+a summary of what actually runs.
 
 ## Typography
 
@@ -365,6 +501,7 @@ edit the JSON, not the table.
 | `--dsh-claude-duration-count` | `220ms` | a session number counting to its new reading |
 | `--dsh-claude-duration-slide` | `240ms` | the segmented controls' sliding highlight, a sidebar icon's quarter turn, the wording box taking the width of the words arriving, and streamed content sliding up from the bottom edge |
 | `--dsh-claude-duration-fade` | `300ms` | a slow cross-fade: the theme flip, the titlebar tabs' hover reveal, the reasoning knob's glow, a placeholder handing its place to what it stood for |
+| `--dsh-claude-duration-column` | `300ms` | a column taking or giving up width beside the chat: the conversation's details rail opening or closing, and the chat's own inset following it |
 | `--dsh-claude-duration-bounce` | `350ms` | a switch's knob travelling across with its double bounce |
 | `--dsh-claude-duration-flight` | `400ms` | the sent message flying from the composer to its row |
 | `--dsh-claude-duration-step` | `500ms` | one step of the reasoning window's text rising two lines |
@@ -375,6 +512,8 @@ edit the JSON, not the table.
 | `--dsh-claude-period-dot-rotate` | `10s` | how long one of the waiting line's loader motions stands before another takes its place, the next one picked so a motion never follows itself |
 | `--dsh-claude-duration-dot-morph` | `480ms` | how long a loader dot takes, once the motion it leaves has it standing still, to travel from that pose into the path of the motion taking over |
 | `--dsh-claude-duration-reduced` | `0.01ms` | every skin animation and transition under the Reduced animation choice (D40) |
+| `--dsh-claude-period-status-title` | `3000ms` | the running title's strong shimmer: 15 percent rest, 70 percent travel, 15 percent rest |
+| `--dsh-claude-period-status-breathe` | `1200ms` | one opacity cycle of the sidebar's running dot, matching Claude Desktop's status-dot cadence |
 | `--dsh-claude-period-host-sweep` | `1500ms` | one pass of the highlight band across the waiting line's words and a running process group's header |
 | `--dsh-claude-duration-host-sweep-delay` | `300ms` | how long the highlight band waits after its words appear before its first pass |
 | `--dsh-claude-period-preview-swap` | `4000ms` | one turn of the settings page's waiting-line preview: one wording standing, leaving, and standing again |
@@ -396,9 +535,11 @@ edit the JSON, not the table.
 | `--dsh-claude-ease-standard` | `ease` | feedback and surfaces: the default curve |
 | `--dsh-claude-ease-out` | `ease-out` | something arriving and settling: a fold's door, content entering the chat area, the landing mark, a hint appearing and leaving |
 | `--dsh-claude-ease-enter` | `cubic-bezier(0.34, 1.3, 0.64, 1)` | a message the reader sends growing into its row: the slight overshoot as it takes its full size |
+| `--dsh-claude-ease-status-title` | `cubic-bezier(0.45, 0, 0.55, 1)` | the middle travel segment of the strong running-title shimmer |
 | `--dsh-claude-ease-in-out` | `ease-in-out` | something that leaves and returns, or swaps in place: wording swaps, pulses, flashes |
 | `--dsh-claude-ease-glide` | `cubic-bezier(0.22, 0.61, 0.36, 1)` | travel along a track: the sliding highlight, the reasoning slider, the search dialog's entrance, the reasoning window's step, the wording box's width, the stream's slide |
 | `--dsh-claude-ease-roll` | `cubic-bezier(0.4, 0, 0.2, 1)` | digits rolling over: the file rows' tail and the process group header's counts |
+| `--dsh-claude-ease-column` | `cubic-bezier(0.4, 0, 0.2, 1)` | a column taking or giving up width beside the chat, and the chat's inset following it |
 | `--dsh-claude-ease-spring` | `cubic-bezier(0.34, 1.45, 0.64, 1)` | a small overshoot as something lands: the overtime badge popping in, a switch's knob bouncing past its end |
 | `--dsh-claude-ease-recoil` | `cubic-bezier(0.34, 3.85, 0.64, 1)` | a lifted colour disc springing back into its row once the pointer leaves, overshooting well past its place before it rests |
 | `--dsh-claude-ease-settle` | `cubic-bezier(0.22, 1, 0.36, 1)` | a surface or a page settling into place out of its anchor: menus and dialogs opening and closing, a settings page sliding, the overtime badge sliding onto its line, the greeting's lines rising, a hint travelling between colour discs, a colour disc lifting |
@@ -418,8 +559,7 @@ edit the JSON, not the table.
 | `--dsh-claude-scale-lift-falloff` | `0.45` | the share of its neighbour's lift a colour disc keeps, one disc further from the pointer |
 | `--dsh-claude-scale-dialog` | `0.96` | the scale a full-window dialog grows from and returns to |
 | `--dsh-claude-scale-dot-mid` | `0.55` | how small a loader dot is while it crosses the middle of its line; at either end it is the dot's own size, so the line motion never draws a dot larger than the bouncing one |
-| `--dsh-claude-duration-resize` | `300ms` | a surface taking a new size: the model picker's second level following the list a query leaves |
-| `--dsh-claude-timing-resize` | `var(--dsh-claude-duration-resize) var(--dsh-claude-ease-settle)` | shorthand: a size change, written after the property in a transition |
+| `--dsh-claude-duration-resize` | `300ms` | a surface taking a new size: the model picker's card following a fold or the list a query leaves |
 | `--dsh-claude-timing-feedback` | `var(--dsh-claude-duration-feedback) var(--dsh-claude-ease-standard)` | shorthand: a control's state change, written after the property in a transition |
 | `--dsh-claude-timing-surface` | `var(--dsh-claude-duration-surface) var(--dsh-claude-ease-standard)` | shorthand: a surface appearing, written after the property or the keyframes' name |
 <!-- /generated:motion -->
@@ -441,9 +581,11 @@ edit the JSON, not the table.
 |---|---|---|
 | `--dsh-claude-layer-control` | `10` | a control kept over the composer card's own stacked rows: the send and stop buttons, the reasoning picker's trigger |
 | `--dsh-claude-layer-picker` | `20` | a picker that hangs its card from inside the composer: the permission picker, whose card has to stand over the controls beside it |
+| `--dsh-claude-layer-rail` | `24` | the conversation's details column: over the chat and the composer, under the host's own floating panels and under the header row, which hangs its menus in a layer of its own |
 | `--dsh-claude-layer-chrome` | `30` | the window's title row the skin draws into: the header band's title and actions, the titlebar's view tabs, over the host's own header |
 | `--dsh-claude-layer-peek` | `40` | the sidebar opened over the page while the pointer rests on its toggle: over the main window's title row and its own controls, under the floating cards and menus its rows open |
 | `--dsh-claude-layer-float` | `99999` | a floating card or menu over everything the host draws: the popover cards, the hero menu |
+| `--dsh-claude-layer-tooltip` | `100000` | the host's own tooltip bubble while it explains a control inside a card the skin floats: over those cards, under a takeover |
 | `--dsh-claude-layer-takeover` | `2147483000` | a surface that covers the whole window: the account-hold page, the sent message's stand-in in flight |
 <!-- /generated:layers -->
 
@@ -921,7 +1063,7 @@ conversation (unless Where it appears keeps it to the home page) — and follows
 same states with the same keys. Its frames, its crop boxes and the frame each
 state holds under reduced motion are in
 `packages/client/src/features/mascot/sheets.ts`, the table the build cuts the
-sheets from; the art is drawn by `scripts/draw-crab.py` after Claude Code's
+sheets from; the art is drawn by `scripts/art/draw-crab.py` after Claude Code's
 character. The shell keeps the clay accent in both themes and the props (the
 laptop, the bubble wand and its bubbles, letters, notes, the hard hat) are an ink mask filled
 with the tertiary label ink, so the mascot reads as part of the card it stands on.
@@ -958,6 +1100,27 @@ stays crisp from 1× to 2× screens without `image-rendering: pixelated`, which
 would drop rows on a downscale. Only the resting body takes the pointer. With the
 animation choice resolved to "reduced" each state holds its still frame; a click
 or a pull still plays its reaction.
+
+## Whalegirl · 鲸娘
+
+Picked in the Mascot row, the third character is Whalegirl, the pixel whale girl
+of the emoji set that came with issue #224. Her sheets, crop boxes, still frames
+and — unlike the other two — each frame's own duration are in
+`features/mascot/sheets.ts`, and she shares their state machine, so a state added
+for one is a state for her too; the four hers alone (carrying, swim, smile-hearts,
+thumbs-up) ride along without a state of their own. She is drawn on a 69×66 grid
+of logical pixels at 2px (138×132px), her shadow on logical row 60 five rows above
+the box, so the box is lifted by those 10 device pixels and two more for the shadow
+to rest on the card's top edge rather than hover above it as the body bounces up a
+row. The art is whole pixels,
+so `image-rendering: pixelated` keeps every cell square at the doubled scale, and
+her strips are one long row of frames rather than the eight-to-a-row grids the
+other two use. The strips are served from the host half and fetched the first time
+an animation plays, so the deferred mascot chunk carries none of her art. The
+anchor, the sprite's window and the strip mechanics she shares with the crab and
+Deepy are in `features/mascot/mascot-frame.css`; only the resting girl takes the
+pointer, and with the animation choice resolved to "reduced" each state holds its
+still frame.
 
 ## Implementation notes
 

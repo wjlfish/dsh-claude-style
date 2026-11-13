@@ -12,9 +12,6 @@
    lays the whole conversation out again every frame, and a slide written as
    `left` lays the sidebar out every frame; neither changes what the page shows
    behind the overlay, so neither runs. */
-body[data-dsh-claude-style] [data-dsh-claude-part~="layout-frame"][data-dsh-claude-sidebar-peek] {
-  transition: none;
-}
 body[data-dsh-claude-style] [data-dsh-claude-part~="layout-frame"][data-dsh-claude-sidebar-peek] > [data-dsh-claude-part~="sidebar-column"] {
   position: absolute;
   grid-row: 1;
@@ -34,6 +31,13 @@ body[data-dsh-claude-style] [data-dsh-claude-part~="layout-frame"][data-dsh-clau
 }
 body[data-dsh-claude-style] [data-dsh-claude-part~="layout-frame"][data-dsh-claude-sidebar-peek="closing"] > [data-dsh-claude-part~="sidebar-column"] {
   animation: dsh-claude-sidebar-peek-out var(--dsh-claude-duration-feedback) var(--dsh-claude-ease-damped-in) forwards;
+}
+/* The host animates the frame's first track while it opens or closes the
+   sidebar, from the host's own state (`[data-animating]`). The peek keeps the
+   page standing where it was, so the track must land at once: played out, it
+   would replay the collapse under the column after the slide is done. */
+body[data-dsh-claude-style] [data-dsh-claude-part~="layout-frame"][data-dsh-claude-sidebar-peek] {
+  transition: none;
 }
 body[data-dsh-claude-style][data-dsh-claude-motion="reduced"] [data-dsh-claude-part~="layout-frame"][data-dsh-claude-sidebar-peek] > [data-dsh-claude-part~="sidebar-column"] {
   will-change: auto;

@@ -260,7 +260,7 @@
       }
       // The rotation: the loader opens on one motion and takes up another every
       // ten seconds, never the one already standing. Its length is the
-      // product's own (D77: a duration that is the behaviour), so every frame is
+      // product's own (D87: a duration that is the behaviour), so every frame is
       // recorded with its moment until two changes have landed: the stretch one
       // motion stood and the hand-over between two of them are both read off it.
       // The lane arriving comes into play the moment a hand-over begins, so a
@@ -462,6 +462,39 @@
       waitSession.setAttribute('data-chat-following-tail', '')
       await probe.settle()
       r.wait.pin = { on: pinOf() }
+      var unpinnedFor = async function (content, what) {
+        await probe.until(pinOf, function (frames) {
+          var last = frames[frames.length - 1]
+          return last.pinned === false && last.mask === null
+        }, what)
+        var reading = pinOf()
+        content.remove()
+        await probe.until(pinOf, function (frames) {
+          var last = frames[frames.length - 1]
+          return last.pinned === true && last.mask !== null
+        }, 'the tail pin returning after later content leaves')
+        return reading
+      }
+      // A reader's message can follow the live row inside the flow slot. The
+      // row then keeps its document place and paints no band over that message.
+      var laterMessage = document.createElement('div')
+      laterMessage.textContent = 'A later reader message'
+      laterMessage.style.height = '80px'
+      row.after(laterMessage)
+      r.wait.pin.afterMessage = await unpinnedFor(laterMessage, 'the row standing down for a later reader message')
+      // The question card travels into the column after the display-contents
+      // flow slot, so the following-content walk has to cross that slot's edge.
+      var flowSlot = document.createElement('div')
+      flowSlot.setAttribute('data-slot', 'conversation.chat.flow')
+      row.before(flowSlot)
+      flowSlot.append(row)
+      var question = document.createElement('div')
+      question.style.height = '120px'
+      flowSlot.after(question)
+      r.wait.pin.afterQuestion = await unpinnedFor(question, 'the row standing down for a question after the flow slot')
+      flowSlot.before(row)
+      flowSlot.remove()
+      await probe.settle()
       window.__pushForm({ chatAnimations: false })
       await probe.settle()
       r.wait.pin.off = pinOf()

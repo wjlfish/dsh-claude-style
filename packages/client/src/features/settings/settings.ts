@@ -38,11 +38,9 @@ type PageDirection = 'forward' | 'back'
  * The skin's settings page, mounted by every seat this host declares.
  *
  * Two seats render it: the `plugins.bundle.config` entry on the plugin
- * page (0.1.7+, keyed by the package name) and the full-page
- * `settings.section` tab in the settings dialog. An older host declares
- * only the latter; a newer one gets both, and since both render the same
- * component against the same prefs store, two live instances stay in
- * step. Neither seat hands the component a store: it reads and writes the
+ * page (keyed by the package name) and the full-page `settings.section`
+ * tab in the settings dialog. Both render the same component against the
+ * same prefs store, so two live instances stay in step. Neither seat hands the component a store: it reads and writes the
  * skin preferences through packages/client/src/core/prefs.ts, which owns the host round
  * trip, and follows changes the same way the rest of the skin does.
  *
@@ -152,10 +150,27 @@ export function ClaudeStyleSettingsSection(props: { embed?: boolean }) {
   /** Which way the open tab arrived, or null for the tab the page opened on. */
   const enterState = React.useState<PageDirection | null>(null)
   const usernameTimer = React.useRef<number | null>(null)
+  /** The text the field shows, as the reader last left it. */
+  const usernameDraft = React.useRef(prefs.username)
+  /** Whether that text is an edit the store has not taken yet: while it is, nothing writes the field. */
+  const usernameEdited = React.useRef(false)
+  /** The username the store held when this edit began, which is what abandoning the edit goes back to. */
+  const usernameBeforeEdit = React.useRef(prefs.username)
+  /** Whether the input method is mid-composition: the field's text is not settled until it ends. */
+  const usernameComposing = React.useRef(false)
+  /** The write the field's text last asked for, which abandoning an edit has to wait for. */
+  const usernameWritten = React.useRef<Promise<unknown> | null>(null)
+
   const quickTrigger = React.useRef<HTMLButtonElement>(null)
   const pageRef = React.useRef<HTMLDivElement>(null)
   const rowsRef = React.useRef<HTMLFieldSetElement>(null)
   const leavingRef = React.useRef<HTMLDivElement>(null)
+
+  /** Show one username in the field, keeping the draft beside it: the two are the same text here. */
+  const adoptUsername = (value: string) => {
+    usernameDraft.current = value
+    setUsername(value)
+  }
 
   /**
    * Open another tab, sliding the pages the way the strip reads: a tab to the
@@ -202,10 +217,13 @@ export function ClaudeStyleSettingsSection(props: { embed?: boolean }) {
     syncSettingsNav()
     let alive = true
     const unsubscribe = subscribePrefs(next => {
-      if (alive) {
-        setPrefs(next)
-        setUsername(next.username)
-      }
+      if (!alive) return
+      setPrefs(next)
+      // A save that settles while the reader is still typing carries the value
+      // from before their next keystroke. Writing it back would end an open
+      // composition and duplicate the text, so the field keeps its own text
+      // until the edit commits.
+      if (!usernameEdited.current && !usernameComposing.current) adoptUsername(next.username)
     })
     const unsubscribeCopy = onModelCopyLoaded(() => {
       if (alive) setPrefs(p => Object.assign({}, p))
@@ -230,30 +248,71 @@ export function ClaudeStyleSettingsSection(props: { embed?: boolean }) {
     })
   }
 
+  /** What the store can hold of the field's text: no surrounding space, and within the limit. */
+  const heldUsername = (value: string) => value.trim().slice(0, USERNAME_MAX)
+
+  const clearUsernameTimer = () => {
+    if (usernameTimer.current) {
+      clearTimeout(usernameTimer.current)
+      usernameTimer.current = null
+    }
+  }
+
   const saveUsernameNow = (value: string) => {
-    const next = value.trim().slice(0, USERNAME_MAX)
-    if (next === readPrefs().username) return
+    const next = heldUsername(value)
+    if (next === readPrefs().username) return Promise.resolve(null)
     setError(null)
     setPrefs(Object.assign({}, readPrefs(), { username: next }))
-    savePrefs({ username: next }).then(result => {
+    const written = savePrefs({ username: next }).then(result => {
       if (result === null) setError(copy('unavailable'))
+      return result
     })
+    usernameWritten.current = written
+    return written
   }
 
   const queueUsernameSave = (value: string) => {
-    if (usernameTimer.current) clearTimeout(usernameTimer.current)
+    clearUsernameTimer()
     usernameTimer.current = setTimeout(() => {
       usernameTimer.current = null
       saveUsernameNow(value)
     }, USERNAME_SAVE_DEBOUNCE_MS)
   }
 
+  /**
+   * Submit the field's text. The edit stops being the reader's here, so a
+   * store answer may reach the field again; the text itself is held to what the
+   * store can take, which is what the field shows once the answer lands.
+   */
   const commitUsername = () => {
-    if (usernameTimer.current) {
-      clearTimeout(usernameTimer.current)
-      usernameTimer.current = null
+    clearUsernameTimer()
+    // An edit already given up, or none at all, has nothing to submit.
+    if (!usernameEdited.current && !usernameComposing.current) return
+    usernameEdited.current = false
+    usernameComposing.current = false
+    adoptUsername(heldUsername(usernameDraft.current))
+    saveUsernameNow(usernameDraft.current)
+  }
+
+  /** Give the field back the text the edit began from, and the store with it. */
+  const discardUsername = () => {
+    clearUsernameTimer()
+    usernameEdited.current = false
+    usernameComposing.current = false
+    // The autosave in hand may already have carried the edit through, so the
+    // username it replaced goes back once that write has settled: a write sent
+    // while another is in flight is fenced off by the host and would be lost.
+    // It goes back only while the store still holds the dropped text, so an
+    // edit the reader has begun since is not written over.
+    const before = usernameBeforeEdit.current
+    const dropped = heldUsername(usernameDraft.current)
+    const written = usernameWritten.current
+    adoptUsername(before)
+    if (written !== null) {
+      written.then(() => {
+        if (readPrefs().username === dropped) saveUsernameNow(before)
+      })
     }
-    saveUsernameNow(username)
   }
 
   const view: SettingsView = {
@@ -265,8 +324,28 @@ export function ClaudeStyleSettingsSection(props: { embed?: boolean }) {
     username: {
       value: username,
       onChange(e) {
-        setUsername(e.target.value)
-        queueUsernameSave(e.target.value)
+        // The native flag is the browser's own answer: a compositionend that
+        // never arrives must not leave the field saving half-composed text.
+        usernameComposing.current = (e.nativeEvent as InputEvent).isComposing === true
+        // The text the field showed before this edit began is what abandoning
+        // it goes back to, and the draft still holds it on the first keystroke.
+        if (!usernameEdited.current) usernameBeforeEdit.current = usernameDraft.current
+        usernameEdited.current = true
+        usernameDraft.current = e.currentTarget.value
+        setUsername(e.currentTarget.value)
+        if (!usernameComposing.current) queueUsernameSave(e.currentTarget.value)
+      },
+      onCompositionStart() {
+        // Nothing is saved while the input method holds the text, and the save
+        // queued before it began carries a value the reader has moved past.
+        usernameComposing.current = true
+        clearUsernameTimer()
+      },
+      onCompositionEnd(e) {
+        usernameComposing.current = false
+        if (!usernameEdited.current) return
+        usernameDraft.current = e.currentTarget.value
+        queueUsernameSave(e.currentTarget.value)
       },
       onBlur: commitUsername,
       onKeyDown(e) {
@@ -275,7 +354,7 @@ export function ClaudeStyleSettingsSection(props: { embed?: boolean }) {
           commitUsername()
           if (e.currentTarget && e.currentTarget.blur) e.currentTarget.blur()
         } else if (e.key === 'Escape') {
-          setUsername(prefs.username)
+          if (usernameEdited.current) discardUsername()
           if (e.currentTarget && e.currentTarget.blur) e.currentTarget.blur()
         }
       },
@@ -306,7 +385,7 @@ export function ClaudeStyleSettingsSection(props: { embed?: boolean }) {
 }
 
 /**
- * The plugin page's configuration entry (0.1.7+).
+ * The plugin page's configuration entry.
  *
  * A `plugins.bundle.config` entry is asked for two views: `summary` is the
  * one-liner on the bundle's card, `page` is the form itself. The host does
@@ -406,11 +485,10 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>) {
     const slots = hostSlots(scope)
     if (slots === undefined || slots === null || typeof slots.inject !== 'function') return
     slotsApi = slots
-    // 0.1.7 keeps a bundle's own configuration on the plugin's page: the
+    // The host keeps a bundle's own configuration on the plugin's page: the
     // entry is keyed by the bundle's package name and rendered there —
     // `view: 'page'` for the form, `view: 'summary'` for the card's
-    // one-liner. The slot is declared by that host's plugin manager, so this
-    // registration is a no-op on an older host.
+    // one-liner.
     scope.effect(() => slots.inject(BUNDLE_CONFIG_SLOT, () => slots.register(
       {
         name: BUNDLE_CONFIG_SLOT,
@@ -419,11 +497,9 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>) {
       },
       ClaudeStyleBundleConfig,
     )), 'dsh-claude-style: plugin page')
-    // The full-page section registers on every host that declares the
-    // slot. On an older host it is the only seat; on 0.1.7+ the same page
-    // also renders on the plugin page, and this tab keeps a route to it
-    // inside the settings dialog. Two live instances share the prefs
-    // store, so a change in one shows in the other.
+    // The same page also renders as a tab of the settings dialog, which keeps
+    // a route to it there. Two live instances share the prefs store, so a
+    // change in one shows in the other.
     scope.effect(() => slots.inject(SETTINGS_SECTION_SLOT, () => slots.register(
       {
         name: SETTINGS_SECTION_SLOT,

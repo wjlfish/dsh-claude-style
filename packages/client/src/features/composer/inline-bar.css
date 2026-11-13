@@ -8,7 +8,7 @@ body[data-dsh-claude-style] [data-composer-card][data-composer-variant="inline"]
 body[data-dsh-claude-style] [data-composer-card][data-composer-variant="inline"] [data-slot="conversation.input.model"] > .dsh-claude-model-seat {
   display: inline-flex;
   align-items: center;
-  font-size: 13px;
+  font-size: calc(13px * var(--dsh-claude-interface-font-scale, 1));
   color: var(--dsw-alias-label-secondary);
   border-radius: 7px;
   cursor: pointer;
@@ -127,13 +127,11 @@ body[data-dsh-claude-style] [data-dsh-claude-part~="trailing"] > [data-dsh-claud
 
 /* ---------- the host's stats row: hidden, its numbers moved elsewhere ---------- */
 /* The host ships two figures here (turns and steps · tok/s, total tokens · cache
-   hits) with its own icons and spacing; it marks each figure since its 2026-09
-   update and marked the container around them before, so both marks are hidden.
-   The row STAYS in the document: its structure still tells the detailed form
+   hits) with its own icons and spacing, and marks each figure, so the figures
+   are hidden. The row STAYS in the document: its structure still tells the detailed form
    from the compact one, and the session's numbers are read from the host's
    projections (features/context-stats/session-stats.ts) into whichever surface
    the position names — the context popover, or the line of their own below. */
-body[data-dsh-claude-style] [data-composer-stats],
 body[data-dsh-claude-style] [data-composer-stat] {
   display: none;
 }
@@ -159,11 +157,10 @@ body[data-dsh-claude-style][data-dsh-claude-stats-position="context"] [data-dsh-
 body[data-dsh-claude-style] [data-dsh-claude-context-meter],
 body[data-dsh-claude-style] [data-dsh-claude-context-meter] button,
 body[data-dsh-claude-style] [data-dsh-claude-meter-ring] > button,
-body[data-dsh-claude-style] [data-dsh-claude-part~="composer-stack"] [data-composer-stats],
 body[data-dsh-claude-style] [data-composer-card] [data-dsh-claude-part~="row"] .dsh-claude-model-btn,
 body[data-dsh-claude-style] [data-composer-card] [data-dsh-claude-part~="row"] .dsh-claude-effort-btn {
   font-family: var(--dsw-font-family);
-  font-size: 13px;
+  font-size: calc(13px * var(--dsh-claude-interface-font-scale, 1));
   font-weight: 500;
   line-height: 20px;
   letter-spacing: normal;
@@ -245,7 +242,7 @@ body[data-dsh-claude-style] .dsh-claude-context-stats-grid {
 }
 body[data-dsh-claude-style] .dsh-claude-context-stats-section {
   color: var(--dsw-alias-label-tertiary);
-  font-size: 11px;
+  font-size: calc(11px * var(--dsh-claude-interface-font-scale, 1));
   font-weight: 600;
   letter-spacing: 0.04em;
 }
@@ -257,7 +254,7 @@ body[data-dsh-claude-style] .dsh-claude-context-stats-item {
 }
 body[data-dsh-claude-style] .dsh-claude-context-stats-label {
   color: var(--dsw-alias-label-tertiary);
-  font-size: 12px;
+  font-size: calc(12px * var(--dsh-claude-interface-font-scale, 1));
   line-height: 16px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -265,7 +262,7 @@ body[data-dsh-claude-style] .dsh-claude-context-stats-label {
 }
 body[data-dsh-claude-style] .dsh-claude-context-stats-value {
   color: var(--dsw-alias-label-primary);
-  font-size: 14px;
+  font-size: calc(14px * var(--dsh-claude-interface-font-scale, 1));
   font-weight: 500;
   line-height: 20px;
   font-variant-numeric: tabular-nums;
@@ -303,12 +300,19 @@ body[data-dsh-claude-style] .dsh-claude-inline-stats {
   overflow: clip;
   color: var(--dsw-alias-label-primary);
   font-family: var(--dsw-font-family);
-  font-size: 13px;
+  font-size: calc(13px * var(--dsh-claude-interface-font-scale, 1));
   font-weight: 500;
   line-height: 20px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   cursor: pointer;
+}
+/* Under the rail position the conversation's details rail carries the session's
+   numbers while it stands (D94), so the line is not painted then. It keeps its
+   box: the dock's floor and the line's own fit stay as they are, and the
+   composer does not move when the rail opens or steps back. */
+body[data-dsh-claude-style][data-dsh-claude-stats-position="rail"][data-dsh-claude-session-panel] .dsh-claude-inline-stats {
+  visibility: hidden;
 }
 /* A figure holds its number and the host's own words after it
    (features/context-stats/inline-stats.ts); a flex item trims the template's
@@ -338,8 +342,8 @@ body[data-dsh-claude-style] .dsh-claude-inline-stats[data-dsh-claude-footer-deta
 body[data-dsh-claude-style] .dsh-claude-inline-stats .dsh-claude-inline-seg[hidden] {
   display: none;
 }
-/* The line's measuring twin: laid out beside the line for one reading and taken
-   off before anything paints. Out of flow, so the dock keeps its layout. */
+/* The line's measuring twin stays beside it, out of flow and hidden between
+   readings, so a fit rewrites text without inserting and removing a subtree. */
 body[data-dsh-claude-style] .dsh-claude-inline-stats[data-dsh-claude-inline-probe] {
   position: absolute;
   visibility: hidden;

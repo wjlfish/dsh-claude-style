@@ -8,7 +8,7 @@
   var host = window.__dshSmokeHost
   var CASE = host.CASE
 
-  var deepy = CASE === 'deepy' || CASE === 'crab-states' ? (function () {
+  var deepy = CASE === 'deepy' || CASE === 'crab-states' || CASE === 'whalegirl' ? (function () {
     var statusListeners = []
     var feedListeners = []
     var status = new Map()
@@ -83,7 +83,7 @@
     var chatTarget = { getSnapshot: function () { return snapshot }, subscribe: subscribe(chatListeners) }
     return {
       sessions: {
-        list: { getSnapshot: function () { return list } },
+        list: { getSnapshot: function () { return list }, subscribe: function () { return function () {} } },
         binding: function (id) { return id === 'smoke-deepy' ? { sessionId: id, eventSource: eventSource } : undefined },
       },
       uiSession: { sessionStatus: { getSnapshot: function () { return status }, subscribe: subscribe(statusListeners) } },

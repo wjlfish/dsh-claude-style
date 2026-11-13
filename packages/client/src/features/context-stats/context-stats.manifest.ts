@@ -1,17 +1,17 @@
-import { CONVERSATION_COMPOSER_REQUIRES, STATS_POSITION_CONTEXT, STATS_POSITION_FOOTER, STATS_POSITION_INLINE } from '../../constants'
+import { CONVERSATION_COMPOSER_REQUIRES, STATS_POSITION_CONTEXT, STATS_POSITION_FOOTER, STATS_POSITION_INLINE, STATS_POSITION_RAIL } from '../../constants'
 import type { FeatureManifest } from '../../core/feature'
 
 export default {
   id: 'contextStats',
   order: 70,
   load: 'deferred',
-  contracts: ['chat.call', 'chat.call-tool', 'chat.call-tool-attribute', 'chat.streaming', 'composer.dialog-trigger', 'composer.meter-fill', 'composer.stat', 'composer.stats', 'composer.stack'],
+  contracts: ['chat.call', 'chat.call-tool', 'chat.call-tool-attribute', 'chat.streaming', 'composer.card', 'composer.dialog-trigger', 'composer.meter-fill', 'composer.stat', 'composer.stack'],
   // The ring of the same directory draws the row's reading, and the panel this
   // feature owns hangs from it (features/context-stats/meter-ring.ts).
-  reads: ['meterRing'],
+  reads: ['meterRing', 'model'],
   pref: 'statsPosition',
   // The panel carries the full reading in every position.
-  prefValues: [STATS_POSITION_INLINE, STATS_POSITION_CONTEXT, STATS_POSITION_FOOTER],
+  prefValues: [STATS_POSITION_INLINE, STATS_POSITION_CONTEXT, STATS_POSITION_FOOTER, STATS_POSITION_RAIL],
   stylesheets: [{ file: 'footer-layout.css', rank: 106, gate: true }, { file: 'billing-table.css', rank: 108, gate: true }],
   settingsRows: [{
     tab: 'statistics',
@@ -41,6 +41,7 @@ export default {
       [STATS_POSITION_INLINE]: 'statsPositionInline',
       [STATS_POSITION_CONTEXT]: 'statsPositionContext',
       [STATS_POSITION_FOOTER]: 'statsPositionFooter',
+      [STATS_POSITION_RAIL]: 'statsPositionRail',
     },
     // The figures hang off the meter the composer restyle stamps, and a
     // session's figures only exist in the conversation.
@@ -77,5 +78,6 @@ export default {
     control: 'billing-table',
     requires: CONVERSATION_COMPOSER_REQUIRES,
   }],
-  cases: ['context-stats', 'stats-compact', 'stats-inline']
+  cases: ['context-stats', 'stats-compact', 'stats-inline'],
+  scenarios: ['statsPosition', 'statsOverlay', 'statsFooter'],
 } satisfies FeatureManifest

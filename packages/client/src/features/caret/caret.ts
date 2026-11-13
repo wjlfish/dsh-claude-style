@@ -18,11 +18,10 @@ import type manifest from './caret.manifest'
  *
  * The browser's caret has no animatable property beyond its colour and its
  * blink, so a transition has only one road: make it transparent and draw
- * one. Two surfaces under the composer seat are taken over — the
- * contenteditable input (measured through the collapsed Range the browser
- * keeps, caret-measure.ts) and a textarea inside the seat, such as a
- * question card's answer box or a queued message's inline editor (measured
- * through a hidden mirror, caret-measure.ts).
+ * one. The contenteditable input is measured through the collapsed Range the
+ * browser keeps; a textarea in the seat or the relocated question card, such
+ * as a question's answer box or a queued message's inline editor, is measured
+ * through a hidden mirror (caret-measure.ts).
  *
  * What the switch means (the settings page's on/off choice):
  *
@@ -63,7 +62,7 @@ export function caretSurfaceOf(element: Element) {
   if (element instanceof HTMLInputElement && element.hasAttribute(CARET_FIELD_ATTR)) {
     return element.disabled || element.readOnly ? null : 'plain'
   }
-  if (element instanceof HTMLTextAreaElement && element.matches(COMPOSER_TEXTAREA_SELECTOR)) {
+  if (element instanceof HTMLTextAreaElement && (element.matches(COMPOSER_TEXTAREA_SELECTOR) || element.closest('[data-dsh-claude-question-surface]') !== null)) {
     return element.disabled || element.readOnly ? null : 'plain'
   }
   return null
@@ -297,33 +296,48 @@ export function createCaretMotion(read: () => string) {
    * It is only readable while the mark is not written yet; afterwards the
    * computed value is transparent. An auto colour follows the text colour.
    */
-  const adoptCaretColor = (input: HTMLElement, layer: CaretLayer) => {
+  const nativeCaretColour = (input: HTMLElement) => {
     const style = getComputedStyle(input)
     // A transparent computed colour means the native caret is already pressed
     // down — another plugin's caret took this surface over first. Copying that
     // would draw nothing at all, so the text colour stands in; it is also what
     // an auto colour means.
-    const color = style.caretColor === 'auto' || style.caretColor === 'rgba(0, 0, 0, 0)' ? style.color : style.caretColor
-    layer.caret.style.setProperty(CARET_COLOR_PROPERTY, color)
+    return style.caretColor === 'auto' || style.caretColor === 'rgba(0, 0, 0, 0)' ? style.color : style.caretColor
   }
+
+  /** Write the colour the read phase took into the drawn caret. */
+  const adoptCaretColour = (colour: string, layer: CaretLayer) => {
+    layer.caret.style.setProperty(CARET_COLOR_PROPERTY, colour)
+  }
+
+  /** The host's padding-box border and its own scroll: a layout read, so a read phase takes it. */
+  const readHostEdge = (host: HTMLElement): CaretHostEdge => ({
+    clientLeft: host.clientLeft,
+    clientTop: host.clientTop,
+    scrollLeft: host.scrollLeft,
+    scrollTop: host.scrollTop,
+  })
 
   /**
    * Put the drawn caret on this viewport box.
    * @param hostRect - the host's box, read in the pass's read phase; null when
    * the layer was rebuilt onto another host and it has to be read here.
    */
-  const drawCaret = (layer: CaretLayer, box: CaretBox, hostRect: DOMRect | null) => {
+  const drawCaret = (layer: CaretLayer, box: CaretBox, hostRect: DOMRect | null, hostEdge: CaretHostEdge | null) => {
     // Absolute positioning goes by the container's padding box and follows
     // its own scroll: the border comes off the difference and the scrolled
     // distance goes back on. The measurement is in the viewport's pixels and
     // the layer is placed in the page's own, which the reader's page zoom
     // scales (shared/page-zoom.ts).
     const rect = hostRect ?? layer.host.getBoundingClientRect()
+    // A rebuilt layer's host is read here, outside the pass that measured the
+    // other one; the common path carries both values from its read phase.
+    const edge = hostEdge ?? readHostEdge(layer.host)
     // Snapped to whole pixels. The native caret sits on the pixel grid, and a
     // box landing on a fraction gets antialiased into a grey fringe that reads
     // as a different caret. The cost is up to half a pixel, which is invisible.
-    const left = Math.round(inPagePixels(box.left - rect.left) - layer.host.clientLeft + layer.host.scrollLeft)
-    const top = Math.round(inPagePixels(box.top - rect.top) - layer.host.clientTop + layer.host.scrollTop)
+    const left = Math.round(inPagePixels(box.left - rect.left) - edge.clientLeft + edge.scrollLeft)
+    const top = Math.round(inPagePixels(box.top - rect.top) - edge.clientTop + edge.scrollTop)
 
     // The frame that lands without a transition has to arrive instantly; the
     // transition comes back on the next one.
@@ -363,7 +377,19 @@ export function createCaretMotion(read: () => string) {
     host: HTMLElement | null
     hostRect: DOMRect | null
     reading: CaretReading | null
+    /** The native caret's colour, read before the mark is written (D40). */
+    colour: string | null
+    /** The host's padding-box border and scroll, read with the box (D40). */
+    hostEdge: CaretHostEdge | null
   } | null = null
+
+/** A host's box edges and its own scroll, read in the pass's read phase. */
+interface CaretHostEdge {
+  clientLeft: number
+  clientTop: number
+  scrollLeft: number
+  scrollTop: number
+}
 
   /** The pass's read phase: whose caret this frame draws, and where it sits. */
   const resolve = () => {
@@ -371,7 +397,7 @@ export function createCaretMotion(read: () => string) {
     // off is absolute: the drawn caret and the mark go away together and the
     // native caret comes back. Keeping them only leaves the reader with none.
     if (read() === CARET_MOTION_OFF) {
-      plan = { off: true, target: null, host: null, hostRect: null, reading: null }
+      plan = { off: true, target: null, host: null, hostRect: null, reading: null, colour: null, hostEdge: null }
       return
     }
     // An input-method composition paints its own caret, candidate window and
@@ -379,7 +405,7 @@ export function createCaretMotion(read: () => string) {
     // end of the composed text, so the skin's caret stands down for its span
     // and compositionend measures again once the commit has landed.
     if (composerComposing(document)) {
-      plan = { off: false, target: null, host: null, hostRect: null, reading: null }
+      plan = { off: false, target: null, host: null, hostRect: null, reading: null, colour: null, hostEdge: null }
       return
     }
     const selection = document.getSelection()
@@ -407,7 +433,7 @@ export function createCaretMotion(read: () => string) {
       target = active
     }
     if (target === null) {
-      plan = { off: false, target: null, host: null, hostRect: null, reading: null }
+      plan = { off: false, target: null, host: null, hostRect: null, reading: null, colour: null, hostEdge: null }
       return
     }
     const reading = target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement
@@ -416,7 +442,18 @@ export function createCaretMotion(read: () => string) {
     // The layer's host is the surface's parent, and the drawn caret is placed
     // against its box: read here for the same reason the caret is.
     const host = target.parentElement instanceof HTMLElement ? target.parentElement : null
-    plan = { off: false, target, host, hostRect: host === null ? null : host.getBoundingClientRect(), reading }
+    // The native caret's colour is readable only while the mark is not written
+    // yet, and reading it here keeps it in the frame's read phase (D40).
+    const colour = target === null || target.hasAttribute(CARET_ATTR) ? null : nativeCaretColour(target)
+    plan = {
+      off: false,
+      target,
+      host,
+      hostRect: host === null ? null : host.getBoundingClientRect(),
+      reading,
+      colour,
+      hostEdge: host === null ? null : readHostEdge(host),
+    }
   }
 
   /** The pass's write phase: the caret the read phase resolved is drawn. */
@@ -465,7 +502,7 @@ export function createCaretMotion(read: () => string) {
       hide(layer)
       return
     }
-    if (!target.hasAttribute(CARET_ATTR)) adoptCaretColor(target, layer)
+    if (!target.hasAttribute(CARET_ATTR) && pending.colour !== null) adoptCaretColour(pending.colour, layer)
     // A plain surface's own scrolled-away part is not drawn. That is not a
     // failed measurement — the native caret is invisible there too — so the
     // mark still stands. The clip goes by the box the measurement read.
@@ -473,8 +510,16 @@ export function createCaretMotion(read: () => string) {
     const box = reading.field === null ? reading.box : caretClipToField(target, reading.field, reading.box)
     // The layer may have been rebuilt onto another host since the read, in
     // which case its box was not read and is read here.
-    if (box === null) hide(layer)
-    else drawCaret(layer, box, layer.host === pending.host ? pending.hostRect : null)
+    if (box === null || !(box.height > 0)) {
+      // A box with no height draws a caret nothing can see, and the native one
+      // is already pressed down by then: the field goes back to the browser's
+      // caret rather than standing with no caret at all.
+      target.removeAttribute(CARET_ATTR)
+      hide(layer)
+      return
+    }
+    const sameHost = layer.host === pending.host
+    drawCaret(layer, box, sameHost ? pending.hostRect : null, sameHost ? pending.hostEdge : null)
     target.setAttribute(CARET_ATTR, '')
   }
 

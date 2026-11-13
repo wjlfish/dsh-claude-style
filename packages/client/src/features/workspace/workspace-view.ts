@@ -1,4 +1,4 @@
-import { hostSessions, hostUiWorkspace, hostWorkspaces, hostWorkspaceView } from '@dsh-claude-style/engine/host'
+import { currentSessionId, hostSessions, hostUiWorkspace, hostWorkspaces, hostWorkspaceView } from '@dsh-claude-style/engine/host'
 import type { HostContext } from '@dsh-claude-style/engine/host'
 import { observeMatches, subscribeMutations } from '@dsh-claude-style/engine/bus'
 import type { MatchList } from '@dsh-claude-style/engine/bus'
@@ -9,35 +9,15 @@ import { createViewStoreFollower } from './view-store'
 import { createSegmentControl } from './segments'
 import { createArchivedActions } from './archived-actions'
 import { createArchivedList } from './archived-list'
+import { hostTooltip } from '../../shared/host-tooltip'
 import type { HostSessionsService, HostUiWorkspaceService, HostWorkspacesService } from '@dsh-claude-style/contracts/services'
 import type { FeatureUi } from '../../core/feature'
 import type manifest from './workspace-view.manifest'
 
 /**
- * The sidebar's workspace section, re-cut as a two-state view of the host's own
- * browser.
- *
- * The host's view store is the state: 进行中 is its 隐藏已归档 filter and
- * 已归档 its 仅显示已归档 filter over the one flat list, so both segments answer
- * the host's own view menu, the archive notice's 「筛选已归档会话」 and a reload
- * spent inside either segment (view-store.ts). The store is reached through the
- * registration the host keeps under `sidebar.workspaces` (package
- * `@dsh-claude-style/engine/host.ts` `hostWorkspaceView`), the same instance
- * its own view menu writes; the grouping the reader had before 已归档 is put
- * back on the way out, and kept in this browser for a reload spent inside
- * 已归档.
- *
- * What 已归档 shows, though, is the skin's own list (archived-list.ts): the
- * host's tree would mount every archived conversation at once, which is what
- * slows the section down once the archive holds hundreds (#210). The skin's
- * list takes the archive set and the session baseline off the host's own
- * snapshots, shows one page of thirty, and appends the next as the reader
- * reaches the foot. While the segment stands, the host's own list area stays
- * hidden and the section's rows are the skin's; every row's open, unarchive and
- * delete is the host's own action (uiWorkspace.openSession,
- * workspaces.unarchiveSession, the host half's session-delete route followed by
- * the sessions service's refresh), so the list behaves like the host's, page
- * by page.
+ * Recast the sidebar workspace section into active and archived segments driven
+ * by the host view store. The archived segment pages the skin's own list so a
+ * large archive is not mounted whole; row actions stay the host's.
  */
 export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>) {
   /** The host's Toast and icons, reached through the plugin loader's `require` — the same packages its UI uses. */
@@ -69,9 +49,11 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>) {
   const actions = createArchivedActions({ toast, sessions: () => sessions })
 
   const list = createArchivedList({
+    tooltip: hostTooltip,
     host: {
       workspaces: () => workspaces,
       sessions: () => sessions,
+      currentSession: () => currentSessionId(ctx),
     },
     actions: {
       /** Open through the host's own navigation; an unavailable action fails at the press (D12). */
@@ -145,13 +127,7 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>) {
     return true
   }
 
-  /**
-   * Mark the rows the host mounts as it rebuilds the list, before the frame
-   * paints. The bus holds a large batch back to the task after the paint (D40),
-   * so the rows of a switch would draw the host's 14px/400 title for one frame
-   * where the sidebar's 13px/500 stands; this subscription asks for the paint's
-   * own side of that rule.
-   */
+  /** Mark new rows before paint; the bus otherwise reports them after the frame (D40). */
   function watchAdditions(root: Element) {
     if (additionsRoot === root) return
     stopAdditions?.()
@@ -167,22 +143,12 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>) {
     })
   }
 
-  /**
-   * Stand the feature down: the control and the archived list leave the page,
-   * and the section's marks go with them.
-   *
-   * The host renders the section's heading only while the sidebar is wide
-   * (ui-sidebar's SidebarRoot unmounts it in the rail), while the header and
-   * the list area's own boxes stay mounted: with no heading to lay it over, an
-   * absolutely placed control would paint on the rail's own section buttons.
-   */
+  /** Remove the control and list; without the wide-sidebar heading a control would cover rail buttons. */
   function dropSection() {
     list.unmount()
     segments.release()
     labelStamp.release()
     viewStamp.release()
-    labelWatch?.release()
-    labelWatch = null
   }
 
   function sync() {
@@ -207,10 +173,7 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>) {
     const view = follower.view()
     segments.sync(header, view)
     viewStamp.mark(root, view)
-    // The archived segment's list stands in the section's own room; 进行中
-    // hands the room back to the host's tree. sync re-reads the host's
-    // snapshots each pass (the list itself writes nothing when they are
-    // unchanged).
+    // The archived list occupies the section; other segments restore the host tree.
     if (view === 'archived') {
       list.mount(root)
       list.sync()
@@ -244,6 +207,11 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>) {
     stopAdditions = null
     additionsRoot = null
     dropSection()
+    // The heading's list outlives a rail: the section is dropped on every pass
+    // there, and rebuilding the registry each time would walk the document and
+    // rebuild the bus's subscriptions for it twice a pass.
+    labelWatch?.release()
+    labelWatch = null
     delete ui.workspace
   }
 }

@@ -1,7 +1,7 @@
 import { FOOTER_ACTIONS_SELECTOR } from '@dsh-claude-style/contracts/dom'
 import { findFootArea } from '@dsh-claude-style/engine/host'
 import { hasSkinClass } from '@dsh-claude-style/engine/dom'
-import { FOOTER_SEAT_ATTR, FOOTER_SEATS } from '../../constants'
+import { FOOTER_BLOCK_ATTR, FOOTER_SEAT_ATTR, FOOTER_SEATS } from '../../constants'
 import { buildPopoverItem } from '../../shared/popover'
 import { copy } from './copy'
 
@@ -70,6 +70,10 @@ export function createFooterMirror(options: {
    *   - an entry a FOOTER_SEATS seat claims (constants.ts) stays in the
    *     sidebar: it keeps its entry mark and gains the seat and the snapshot
    *     its rule copies, and the popover gathers no row for it.
+   *   - an entry that is a `<section>` is a block the plugin laid out for the
+   *     sidebar, not a control: it keeps its place above the account row under
+   *     FOOTER_BLOCK_ATTR, the popover carries a copy of it for the collapsed
+   *     rail alone.
    * Returns the live entry list for popover mirroring.
    */
   function syncFooterVisibility(footArea: Element) {
@@ -92,6 +96,7 @@ export function createFooterMirror(options: {
         // overlay that nothing paints (issue #97).
         entry.removeAttribute('data-dsh-claude-footer-entry')
         entry.removeAttribute('data-dsh-claude-footer-hidden')
+        entry.removeAttribute(FOOTER_BLOCK_ATTR)
         entry.setAttribute('data-dsh-claude-footer-overlay', '')
         continue
       }
@@ -104,9 +109,24 @@ export function createFooterMirror(options: {
         entry.setAttribute(FOOTER_SEAT_ATTR, seat)
         entry.removeAttribute('data-dsh-claude-footer-entry')
         entry.removeAttribute('data-dsh-claude-footer-hidden')
+        entry.removeAttribute(FOOTER_BLOCK_ATTR)
         continue
       }
       entry.removeAttribute(FOOTER_SEAT_ATTR)
+      const block = entry.tagName === 'SECTION'
+      if (block) {
+        // A section is the plugin's own block laid out for the sidebar — a
+        // heading and the rows under it — not a control the account menu can
+        // stand in for: it keeps its place above the account row, and
+        // footer-takeover.css gives the footer's action box its size back for
+        // it. The popover still carries a copy, which the rail shows where the
+        // block itself has no room.
+        entry.setAttribute(FOOTER_BLOCK_ATTR, '')
+        entry.removeAttribute('data-dsh-claude-footer-entry')
+        entry.removeAttribute('data-dsh-claude-footer-hidden')
+        continue
+      }
+      entry.removeAttribute(FOOTER_BLOCK_ATTR)
       entry.setAttribute('data-dsh-claude-footer-entry', '')
       const all = entry.querySelectorAll('*')
       for (let j = 0; j < all.length; j++) {
@@ -320,7 +340,12 @@ export function createFooterMirror(options: {
       // container (a region or tabindex wrapper) is still a widget.
       const tag = entry.tagName
       const role = entry.getAttribute('role') || ''
-      return tag === 'BUTTON' || tag === 'A' || role === 'button'
+      if (tag !== 'BUTTON' && tag !== 'A' && role !== 'button') return false
+      // A card can be the control itself: a quota card is one button whose
+      // rows draw a label, an amount and a percentage each. One label belongs
+      // in a menu item; a drawing with several figures keeps its markup, so a
+      // text item would drop what the card exists to show.
+      return textPieces(entry) < 3
     }
     // Semantic meter markup is always a widget, however small.
     if (entry.querySelector('[role="progressbar"], [role="meter"], meter, progress') !== null) return false
@@ -332,9 +357,13 @@ export function createFooterMirror(options: {
     return entryText.length - triggerText.length <= 2
   }
 
-  /** Visible text of an entry, skipping overlay subtrees. */
-  function textExcludingOverlays(entry: Element) {
-    let text = ''
+  /**
+   * The entry's own text nodes, in document order, with the subtrees of any
+   * overlay left out: an open panel's copy must not change what its entry
+   * reads as.
+   */
+  function ownTextNodes(entry: Element): Text[] {
+    const nodes: Text[] = []
     const walker = document.createTreeWalker(entry, 4 /* SHOW_TEXT */, {
       acceptNode(node) {
         let p = node.parentElement
@@ -345,8 +374,28 @@ export function createFooterMirror(options: {
         return 1 // ACCEPT
       }
     })
-    while (walker.nextNode()) text += walker.currentNode.nodeValue
-    return text.trim()
+    while (walker.nextNode()) nodes.push(walker.currentNode as Text)
+    return nodes
+  }
+
+  /**
+   * The number of separate leaves an entry writes text into. One label is an
+   * action's whole vocabulary; a card that draws figures has several (a name,
+   * an amount and a percentage per row), and a text menu item would drop them.
+   */
+  function textPieces(entry: Element): number {
+    const nodes = ownTextNodes(entry).filter(node => (node.nodeValue || '').trim() !== '')
+    let pieces = 0
+    for (let at = 0; at < nodes.length; at++) {
+      const parent = nodes[at].parentElement
+      if (parent !== null && !nodes.slice(0, at).some(earlier => earlier.parentElement === parent)) pieces++
+    }
+    return pieces
+  }
+
+  /** Visible text of an entry, skipping overlay subtrees. */
+  function textExcludingOverlays(entry: Element) {
+    return ownTextNodes(entry).map(node => node.nodeValue).join('').trim()
   }
 
   /**
@@ -413,6 +462,7 @@ export function createFooterMirror(options: {
       embed.setAttribute('data-embed-html', html)
       while (embed.firstChild) embed.removeChild(embed.firstChild)
       embed.appendChild(clone)
+      embed.classList.toggle('dsh-claude-popover-embed-section', clone.tagName === 'SECTION')
     }
   }
 
@@ -566,9 +616,10 @@ export function createFooterMirror(options: {
         // balance stack is itself clickable). A card a plugin mounted into
         // the footer itself is one of those whatever its own text says: the
         // usage card reads as one line, and a text row would drop the
-        // figures it draws, so it keeps its own markup.
+        // figures it draws, so it keeps its own markup. A block is one for
+        // the same reason, and its clone is the copy the rail shows.
         const inSlot = entry.closest(FOOTER_ACTIONS_SELECTOR) !== null
-        if (!inSlot || !entryIsActionLike(entry, trigger)) {
+        if (!inSlot || entry.hasAttribute(FOOTER_BLOCK_ATTR) || !entryIsActionLike(entry, trigger)) {
           removeActionMirror(idx)
           if (hasContent) {
             syncEmbedMirror(entry, idx, trigger)
@@ -670,13 +721,14 @@ export function createFooterMirror(options: {
   /** Drop every takeover marker from the host's footer entries. */
   function clear(footArea: Element) {
     const marked = footArea.querySelectorAll(
-      '[data-dsh-claude-footer-entry], [data-dsh-claude-footer-hidden], [data-dsh-claude-footer-overlay], [data-dsh-claude-footer-seat]',
+      '[data-dsh-claude-footer-entry], [data-dsh-claude-footer-hidden], [data-dsh-claude-footer-overlay], [data-dsh-claude-footer-seat], [data-dsh-claude-footer-block]',
     )
     for (let i = 0; i < marked.length; i++) {
       marked[i].removeAttribute('data-dsh-claude-footer-entry')
       marked[i].removeAttribute('data-dsh-claude-footer-hidden')
       marked[i].removeAttribute('data-dsh-claude-footer-overlay')
       marked[i].removeAttribute(FOOTER_SEAT_ATTR)
+      marked[i].removeAttribute(FOOTER_BLOCK_ATTR)
     }
   }
 

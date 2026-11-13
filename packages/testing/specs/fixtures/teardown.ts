@@ -1,10 +1,4 @@
-/**
- * What every mechanism spec does around its cases: register the stops it
- * installs, run them after the case, empty the document, and wait a few frames
- * for the browser to catch up. This lived copy-pasted in each spec file —
- * jscpd counts those copies as duplicated code — so it lives here once and the
- * specs import it.
- */
+/** What every mechanism spec does around its cases: run the stops it registered after the case, then empty the document. */
 import { afterEach } from 'vitest'
 
 /** Every teardown a case registered. */
@@ -20,7 +14,4 @@ export function cleanupWith(stop: () => void) {
   cleanups.push(stop)
 }
 
-/** Wait for the browser to run `count` frames. */
-export async function frames(count: number) {
-  for (let at = 0; at < count; at += 1) await new Promise(resolve => requestAnimationFrame(resolve))
-}
+export { frames } from './frames'

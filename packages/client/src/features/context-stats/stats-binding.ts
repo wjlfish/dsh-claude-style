@@ -4,7 +4,8 @@ import { readPrefs } from '../../core/prefs'
 import { setAttributeIfChanged } from '@dsh-claude-style/engine/dom'
 import { POPOVER_CLOSE_DELAY, POPOVER_OPEN_DELAY, createHoverIntent, isProgrammaticPress, pressKeepsPopoverOpen, programmaticPress, resolveAnchoredPosition } from '../../shared/popover'
 import { inPageBox, pageViewport } from '../../shared/page-zoom'
-import { CONTEXT_PANEL_ALIGNED_ATTR, CONTEXT_PANEL_ATTR, contextPanel, contextTrigger, findContextMeter, observeDialogs } from './stats-panel'
+import { CONTEXT_PANEL_ALIGNED_ATTR, CONTEXT_PANEL_ATTR, contextMeterOf, contextPanel, contextTrigger, contextTriggerOf, expandedContextTrigger, findContextMeter, observeDialogs } from './stats-panel'
+import { meterRingOf } from './meter-ring'
 import { copy } from './copy'
 import type { MatchList } from '@dsh-claude-style/engine/bus'
 
@@ -38,16 +39,65 @@ export function createContextStatsBinding(ring: () => HTMLElement | null) {
   /** The open panel's size watcher, or null before a panel has been seen. */
   let stopPanelSize: (() => void) | null = null
   /**
-   * Every listener this generation put on a node the host owns, with the call
-   * that takes it off. The ring, the meter, the line and the panel outlive the
-   * generation, so the teardown has to remove what it bound: the token above
-   * only keeps one generation from binding the same element twice.
+   * Every listener this generation put on a node the host owns, with the node
+   * and the call that takes it off. The ring, the meter, the line and the panel
+   * outlive the generation, so the teardown removes what it bound, and a node
+   * the page takes out is released as soon as the next binding sees it
+   * (forgetDetachedBindings): the token above only keeps one generation from
+   * binding the same element twice.
    */
-  const boundListeners: { remove: () => void }[] = []
+  const boundListeners: { surface: Element, remove: () => void }[] = []
 
-  /** The face the panel hangs from: the skin's ring when it is drawn, else the host's meter. */
-  function meterFace() {
-    return ring() ?? findContextMeter()
+  /**
+   * Drop the bindings whose surface the page took out. A session switch
+   * replaces the meter, the line and the panel under the old conversation, and
+   * a binding left behind holds that element, whose ancestors hold the whole
+   * removed transcript. The token comes off with it, so a surface the page
+   * moves back is bound again.
+   */
+  function forgetDetachedBindings() {
+    for (let index = boundListeners.length - 1; index >= 0; index -= 1) {
+      const binding = boundListeners[index]
+      if (binding.surface.isConnected) continue
+      binding.remove()
+      delete binding.surface.__dshContextMeterToken
+      delete binding.surface.__dshContextLineToken
+      delete binding.surface.__dshContextPanelToken
+      if (binding.surface === dwellFace) dwellFace = null
+      boundListeners.splice(index, 1)
+    }
+  }
+
+  /**
+   * The trigger a face drives: the meter of that face's own composer card, else
+   * the first meter the document holds. A page can carry more than one card — a
+   * sub-agent's docked conversation beside the main one — and each card's meter
+   * opens that card's own panel.
+   */
+  function triggerFor(surface: Element | null) {
+    return contextTriggerOf(surface) ?? contextTrigger()
+  }
+
+  /**
+   * The face a panel hangs from: the skin's ring while it stands in the same
+   * card as the trigger that opened the panel, else that card's own meter, and
+   * the first face only when the page names neither.
+   */
+  function faceFor(trigger: Element | null) {
+    const fallback = ring()
+    if (trigger === null) return fallback ?? findContextMeter()
+    const meter = contextMeterOf(trigger)
+    // A ring stands in the card whose meter it hides: the face over the panel
+    // is that card's ring, not the meter behind it. Each card of a page with a
+    // sub-agent's docked conversation has one (meter-ring.ts).
+    const own = meterRingOf(trigger)
+    if (own !== null) return own
+    return meter ?? fallback ?? findContextMeter()
+  }
+
+  /** The face whose panel is up: the one the host marks expanded, if any. */
+  function openFace() {
+    return faceFor(expandedContextTrigger())
   }
 
   /**
@@ -55,8 +105,8 @@ export function createContextStatsBinding(ring: () => HTMLElement | null) {
    * placement, its dismissal and its keyboard handling all stay the
    * host's. Only the trigger is driven, and only when it is closed.
    */
-  function openContextPanel() {
-    const trigger = contextTrigger()
+  function openContextPanel(surface: Element | null) {
+    const trigger = triggerFor(surface)
     if (trigger === null || trigger.getAttribute('aria-expanded') === 'true') return
     trigger.click()
   }
@@ -67,18 +117,25 @@ export function createContextStatsBinding(ring: () => HTMLElement | null) {
    * frame in which the pointer is already inside a panel the leave event
    * still saw as left.
    */
-  function closeContextPanel() {
-    const trigger = contextTrigger()
+  function closeContextPanel(surface?: Element | null) {
+    const trigger = expandedContextTrigger() ?? triggerFor(surface ?? null)
     if (trigger === null || trigger.getAttribute('aria-expanded') !== 'true') return
     const panel = contextPanel()
     if (panel !== null && panel.matches(':hover')) return
     programmaticPress(trigger)
   }
 
-  const hoverIntent = createHoverIntent(openContextPanel, () => {
+  /** The face whose dwell is pending: the panel opens from that face's own card. */
+  let dwellFace: Element | null = null
+
+  const hoverIntent = createHoverIntent(() => {
+    const surface = dwellFace
+    dwellFace = null
+    openContextPanel(surface)
+  }, () => {
     // Layout can return the pointer to the face before the close grace expires.
     // Explicit line and keyboard dismissal still use closeContextPanel directly.
-    if (meterFace()?.matches(':hover')) return
+    if (openFace()?.matches(':hover')) return
     closeContextPanel()
   }, POPOVER_OPEN_DELAY, POPOVER_CLOSE_DELAY)
 
@@ -103,11 +160,12 @@ export function createContextStatsBinding(ring: () => HTMLElement | null) {
    * (shared/popover.ts::pressKeepsPopoverOpen).
    */
   function bindContextMeter(surface: HTMLElement, ringSurface: boolean) {
+    forgetDetachedBindings()
     if (surface.__dshContextMeterToken === statsBindingToken) return
     surface.__dshContextMeterToken = statsBindingToken
     const onDown = (event: Event) => {
       if (!ringSurface || !(event instanceof PointerEvent)) return
-      const trigger = contextTrigger()
+      const trigger = triggerFor(surface)
       if (trigger === null) return
       event.stopPropagation()
       trigger.dispatchEvent(new PointerEvent('pointerdown', {
@@ -122,7 +180,9 @@ export function createContextStatsBinding(ring: () => HTMLElement | null) {
       }))
     }
     const onEnter = () => {
-      if (hoverEnabled()) hoverIntent.scheduleOpen()
+      if (!hoverEnabled()) return
+      dwellFace = surface
+      hoverIntent.scheduleOpen()
     }
     const onLeave = () => {
       if (hoverEnabled()) hoverIntent.scheduleClose()
@@ -135,7 +195,7 @@ export function createContextStatsBinding(ring: () => HTMLElement | null) {
     // its own press behaviour: it is not a hover trigger
     const onClick = (event: Event) => {
       if (isProgrammaticPress()) return
-      const trigger = contextTrigger()
+      const trigger = triggerFor(surface)
       const target = event.target
       if (trigger === null || !(target instanceof Node)) return
       const open = trigger.getAttribute('aria-expanded') === 'true'
@@ -146,14 +206,15 @@ export function createContextStatsBinding(ring: () => HTMLElement | null) {
         return
       }
       if (pressKeepsPopoverOpen(hoverEnabled(), open)) return
-      if (open) closeContextPanel()
-      else openContextPanel()
+      if (open) closeContextPanel(surface)
+      else openContextPanel(surface)
     }
     surface.addEventListener('pointerdown', onDown, true)
     surface.addEventListener('mouseenter', onEnter)
     surface.addEventListener('mouseleave', onLeave)
     surface.addEventListener('click', onClick, true)
     boundListeners.push({
+      surface,
       remove() {
         surface.removeEventListener('pointerdown', onDown, true)
         surface.removeEventListener('mouseenter', onEnter)
@@ -171,6 +232,7 @@ export function createContextStatsBinding(ring: () => HTMLElement | null) {
    * once per generation, like the meter.
    */
   function bindContextLine(line: Element) {
+    forgetDetachedBindings()
     if (line.__dshContextLineToken === statsBindingToken) return
     line.__dshContextLineToken = statsBindingToken
     line.setAttribute('role', 'button')
@@ -181,7 +243,7 @@ export function createContextStatsBinding(ring: () => HTMLElement | null) {
       // The host reads presses outside its panel as a dismissal; the press that
       // opens it must not reach that reader in the same event.
       event.stopPropagation()
-      toggleContextPanel()
+      toggleContextPanel(line)
     }
     const onKeyDown = (event: Event) => {
       if (!(event instanceof KeyboardEvent)) return
@@ -193,11 +255,12 @@ export function createContextStatsBinding(ring: () => HTMLElement | null) {
       if (event.key !== 'Enter' && event.key !== ' ') return
       event.preventDefault()
       event.stopPropagation()
-      toggleContextPanel()
+      toggleContextPanel(line)
     }
     line.addEventListener('click', onClick)
     line.addEventListener('keydown', onKeyDown)
     boundListeners.push({
+      surface: line,
       remove() {
         line.removeEventListener('click', onClick)
         line.removeEventListener('keydown', onKeyDown)
@@ -206,10 +269,9 @@ export function createContextStatsBinding(ring: () => HTMLElement | null) {
   }
 
   /** Open the panel from either trigger, or close it when it is already open. */
-  function toggleContextPanel() {
-    const trigger = contextTrigger()
-    if (trigger !== null && trigger.getAttribute('aria-expanded') === 'true') closeContextPanel()
-    else openContextPanel()
+  function toggleContextPanel(surface?: Element | null) {
+    if (expandedContextTrigger() !== null) closeContextPanel(surface)
+    else openContextPanel(surface ?? null)
   }
 
   /**
@@ -221,7 +283,7 @@ export function createContextStatsBinding(ring: () => HTMLElement | null) {
    * locale or copy change reaches it too.
    */
   function syncContextLineState(line: Element) {
-    const trigger = contextTrigger()
+    const trigger = expandedContextTrigger() ?? triggerFor(line)
     const expanded = trigger !== null && trigger.getAttribute('aria-expanded') === 'true' ? 'true' : 'false'
     if (line.getAttribute('aria-expanded') !== expanded) line.setAttribute('aria-expanded', expanded)
     setAttributeIfChanged(line, 'aria-label', copy('statsLineLabel'))
@@ -247,9 +309,9 @@ export function createContextStatsBinding(ring: () => HTMLElement | null) {
    * together, so the rule never runs on a reading that has gone.
    */
   function alignContextPanel(panel: HTMLElement) {
-    const meter = meterFace()
-    if (meter === null) return
-    const anchor = inPageBox(meter.getBoundingClientRect())
+    const face = openFace()
+    if (face === null) return
+    const anchor = inPageBox(face.getBoundingClientRect())
     // The panel's own entrance scales it (the cards' 0.98), and a TRANSFORMED
     // rect is two percent narrower than the box that settles: read the layout
     // size, which is the one the panel ends up with.
@@ -268,6 +330,7 @@ export function createContextStatsBinding(ring: () => HTMLElement | null) {
   }
 
   function bindContextPanel(panel: HTMLElement) {
+    forgetDetachedBindings()
     if (!panel.hasAttribute(CONTEXT_PANEL_ATTR)) panel.setAttribute(CONTEXT_PANEL_ATTR, '')
     if (panel.__dshContextPanelToken === statsBindingToken) {
       // A reading taken before the face had a box is no reading: the panel
@@ -286,6 +349,7 @@ export function createContextStatsBinding(ring: () => HTMLElement | null) {
     panel.addEventListener('mouseenter', onEnter)
     panel.addEventListener('mouseleave', onLeave)
     boundListeners.push({
+      surface: panel,
       remove() {
         panel.removeEventListener('mouseenter', onEnter)
         panel.removeEventListener('mouseleave', onLeave)
@@ -330,8 +394,9 @@ export function createContextStatsBinding(ring: () => HTMLElement | null) {
    */
   function closeContextStatsPanel() {
     hoverIntent.cancel()
-    const trigger = contextTrigger()
-    if (trigger === null || trigger.getAttribute('aria-expanded') !== 'true') return
+    dwellFace = null
+    const trigger = expandedContextTrigger()
+    if (trigger === null) return
     trigger.click()
   }
 
@@ -362,6 +427,16 @@ export function createContextStatsBinding(ring: () => HTMLElement | null) {
     },
     /** Stop watching the panel's size. */
     releaseSize: releasePanelSize,
+    /**
+     * The page switched sessions (D91): the meter, the line and the panel under
+     * the old conversation are released here, in the batch the switch is heard
+     * in, rather than at the next binding pass. A binding left holding one of
+     * those nodes holds the transcript it stands in.
+     */
+    onSessionSwitch() {
+      forgetDetachedBindings()
+      releasePanelSize()
+    },
     /**
      * The generation's whole binding goes: the hover timers, the size watcher
      * and every listener put on the host's own meter, line and panel. Those

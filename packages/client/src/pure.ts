@@ -1,20 +1,8 @@
-/**
- * The browser half's declared logic surface (D77): the functions the logic layer
- * of the specs (packages/testing/specs/logic/) may call below the page, and the
- * one stylesheet a placement function measures against.
- *
- * An entry here answers from its arguments alone — numbers, strings, snapshots
- * the host hands over, or DOM nodes passed in — and keeps nothing between calls
- * beyond what it returns. Everything else a feature does is reached through
- * `apply(ctx)` on the built page (packages/testing/specs/behaviour/). A spec
- * names an entry, never a module path, so moving or splitting a module changes
- * this file and no spec.
- *
- * The bundle never carries this module: entry.ts does not import it, and the
- * build's source check stands it aside the way it stands the manifests aside
- * (scripts/build-checks.mjs).
+/** Stateless spec entries only; specs name these exports so module moves do not change tests (D92).
+ * The production entry never imports this module.
  */
 
+export { switchedOff } from './core/switches'
 export { resolveMascot } from './core/prefs'
 export { accentInk, cssString } from './features/brand/brand'
 export { createFooterMirror } from './features/account/footer-mirror'
@@ -23,6 +11,11 @@ export type { FileHunk, FileReadCard, FileRowState } from './features/chat-files
 export { byDocumentOrder, createFileMerge, mergeViews, rowCarrier } from './features/chat-files/file-row-merge'
 export type { FileMergeRow } from './features/chat-files/file-row-merge'
 export { foldExpandedBody } from './features/chat-fold/fold-glide-parts'
+export { createRowHeightCache, ROW_HEIGHT_CACHE_LIMIT, rowHeightKey } from './features/row-skip/row-heights'
+export { appendRevealSnapshot, revealEntryAt, revealTextSlice } from './features/chat-reveal/reveal-text'
+export { createRevealScanner } from './features/chat-reveal/reveal-diff'
+export { CHAT_REVEAL_ACTIVE_LIMIT, createRevealState } from './features/chat-reveal/reveal-params'
+export type { RevealRun, RevealSnapshot, RevealState } from './features/chat-reveal/reveal-params'
 export { countProcessItems, summaryForm, summaryParts, summarySeparator, summaryText } from './features/chat-fold/process-summary'
 export {
   CHAT_DRAFT_HANDOFF_AT, CHAT_FLIGHT_MS, CHAT_LANDING_MS, CHAT_MAX_TEXT_LAYERS, CHAT_MORPH_END, CHAT_RISE_DAMPING, CHAT_RISE_OMEGA, CHAT_SHAPE_SAMPLES,
@@ -41,6 +34,12 @@ export { CACHE_HIT_STOPS, CONTEXT_STOPS, RAMP_SPAN_HIGH, RAMP_SPAN_LOW, rampPosi
 export { textTokens } from './features/context-stats/text-tokens'
 export { effortSteps, effortTint, isRankedEffort, orderEffortIds } from './features/effort/ladder'
 export type { EffortLadder, EffortStep } from './features/effort/ladder'
+export {
+  BAND_H, FLASH_S, FLOW_S, SURFACE_S, arrivalGlow, arrivalPhase, arrivalRise, cellFade, cellUnit, composeBlockColour, flashAt, flashEnvelope, flowAt, flowEnvelope, flowStrength, solveField,
+} from './features/effort/matrix-field'
+export type { Channels, FieldBlock, FieldGrid } from './features/effort/matrix-field'
+export { placeCaptionRow } from './features/header-band/placement'
+export type { CaptionInputs, CaptionPlacement } from './features/header-band/placement'
 export { HEAT_CELL_SELECTOR, HEAT_HINT_CLASS, HEAT_HINT_SHOWN_ATTR, HEAT_HINT_SIDE_ATTR, HEAT_HINT_TEXT_CLASS, HEAT_TIP_ATTR, HEAT_TIP_GAP, hideHeatTip, placeHeatTip, showHeatTip } from './features/home/heat-tip'
 export type { HeatTipPlacement } from './features/home/heat-tip'
 export { HOME_CHART_LABEL_GAP, homeChartTicks } from './features/home/chart-axis'
@@ -64,6 +63,17 @@ export { currentRate, forgetRates, formatCountdown } from './features/peakrate/s
 export { keepFlowChildMark } from './features/sodium/flow-items'
 export { SODIUM_MEMBERS } from './features/sodium/members'
 export { versionAtLeast } from './features/sodium/version'
+export { createPanelPoller } from './features/session-panel/panel-poller'
+export { createWakeThrottle } from './features/session-panel/wake-throttle'
+export type { WakeThrottle, WakeThrottleDeps } from './features/session-panel/wake-throttle'
+export type { PanelPoller, PanelPollerDeps } from './features/session-panel/panel-poller'
+export { EMPTY_READING, answeredReading, failedReading, readingFor } from './features/session-panel/reading-state'
+export type { PanelReading, PanelReadingState } from './features/session-panel/reading-state'
+export { billingCurrency, statsCostText } from './features/session-panel/stats-cost'
+export { contextRows } from './features/session-panel/context-rows'
+export { HOME_MODEL_COLOUR_COUNT, createHomeModelColours } from './features/home/model-colors'
+export { FALLBACK_VIEW_TAB_SHIFT, VIEW_TAB_CLEARANCE, VIEW_TAB_TOP_INSET, placementFor } from './features/view-tabs/placement'
+export type { PlacementBox, StripBoxes, StripPlacement, StripTranslate } from './features/view-tabs/placement'
 export { PHRASE_TAIL_CHARS, activityPhrase } from './shared/activity-phrase'
 export { backgroundOpacityOf, backgroundOpacityPercent } from './shared/background-opacity'
 export { callDescription } from './shared/turn-activity'
@@ -76,12 +86,34 @@ export { default as SLIDING_PILL_SHEET } from './shared/sliding-pill.css?raw'
 export { ACTIVITY_THINKING, activityWords, waitingWord } from './shared/turn-activity'
 export { inPageColumns, inPageLength, installFrameColumns } from './shared/page-scale-columns'
 export { pageZoomOf, pageZoomPercent, pageZoomText } from './shared/page-zoom'
+export { interfaceFontSizeOf, interfaceFontSizePercent } from './shared/interface-font-size'
+export { webfontRules } from './shared/webfont-rules'
 export { install as installActiveFirst } from './features/active-first/active-first'
-export { install as installRowSkip } from './features/row-skip/row-skip'
+export { install as installRowSkip, WIDTH_SETTLE_MS } from './features/row-skip/row-skip'
 export { ARCHIVED_PAGE_SIZE, archivedOrder, createArchivedList } from './features/workspace/archived-list'
 export type { ArchivedList, ArchivedListActions, ArchivedListDeps, ArchivedListHost } from './features/workspace/archived-list'
 
+export { attentionEvents, attentionReading } from './features/sound-cues/attention'
+export type { AttentionEvent, AttentionReading } from './features/sound-cues/attention'
 export { RightSessionStatus } from './features/sidebar-status/row-status'
+export { WorkspaceRunningMark } from './features/sidebar-status/group-mark'
+export { WorkspaceGroupStatus } from './features/sidebar-status/group-status'
+export { runningWorkspaces } from './features/sidebar-status/running-groups'
+export type { RunningWorkspace } from './features/sidebar-status/running-groups'
+export { install as installSidebarStatus } from './features/sidebar-status/sidebar-status'
 export { default as SIDEBAR_STATUS_SHEET } from './features/sidebar-status/sidebar-status.css?raw'
 export { default as SIDEBAR_BASE_SHEET } from './theme/sidebar.css?raw'
 export { installSessionContextMenu } from './features/session-actions/context-menu'
+export { createUnreadVisitTracker, createUnreadWriter, setUnreadMark } from './features/manual-unread/state'
+export { UnreadRowMark, unreadRowSessionId } from './features/manual-unread/row-mark'
+export { default as MANUAL_UNREAD_SHEET } from './features/manual-unread/manual-unread.css?raw'
+
+export { createComposerResponsive } from './features/composer/responsive'
+export { composerViewportGap } from './features/composer/visual-viewport'
+export { default as composerInlineCss } from './features/composer/inline.css?raw'
+export { default as composerInlineBarCss } from './features/composer/inline-bar.css?raw'
+export { default as composerResponsiveCss } from './features/composer/responsive.css?raw'
+export { default as composerModelCss } from './features/model/model-picker.css?raw'
+export { default as composerVarsCss } from './features/composer/vars.css?raw'
+export { default as composerSwappingCss } from './shared/swapping-text.css?raw'
+export { setSwappingText, releaseSwappingText } from './shared/swapping-text'

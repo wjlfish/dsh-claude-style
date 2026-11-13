@@ -1,3 +1,9 @@
+/* Claude 0.19.7's warm inline-code ink is an independent overlay. The custom
+   colour card removes this attribute in brand.ts, so its own colour wins. */
+body[data-dsh-claude-style][data-dsh-claude-palette="claude"][data-dsh-claude-inline-code-color="classic"] {
+  --dsh-claude-inline-code-fg: var(--dsh-claude-classic-code);
+}
+
 /* ---------- Custom brand: sidebar mark ---------- */
 /* The reader's own mark over either brand (D30): the host's whale, or the
    Claude mark theme/sidebar.css draws, gives way, and the image is painted in
@@ -87,7 +93,7 @@ body[data-dsh-claude-style][data-dsh-claude-custom-mark] [data-dsh-claude-part~=
    ink is --dsh-claude-logo-ink, the token the brand's own art takes (brand.ts),
    so a picture wears the colour of the mark beside it. Their four colours are
    seeds: the token sheet renders the whole palette from them at runtime
-   (scripts/theme-tokens.mjs), so nothing here restates a token. */
+   (scripts/build/theme-tokens.mjs), so nothing here restates a token. */
 body[data-dsh-claude-style][data-dsh-claude-custom-mark][data-dsh-claude-custom-tint] :is([data-dsh-claude-part~="brand-mark"], [data-dsh-claude-part~="rail-mark"])::before,
 body[data-dsh-claude-style][data-dsh-claude-custom-mark][data-dsh-claude-custom-tint] [data-dsh-claude-part~="hero-mark"]::before,
 body[data-dsh-claude-style][data-dsh-claude-custom-word="image"][data-dsh-claude-custom-tint] [data-dsh-claude-part~="brand-identity"] > [data-dsh-claude-part~="brand-name"]::before {

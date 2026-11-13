@@ -17,7 +17,6 @@ const TABS = host.attributes('header.conversation-tabs')
 /** The Windows caption row, which only the desktop shell writes. */
 const WINDOWS = host('shell.windows-titlebar')
 const STRIP = surface.attribute('view-tabs.strip')
-const ROW = surface.attribute('view-tabs.row')
 const TITLEBAR = surface.attribute('view-tabs.titlebar')
 
 /**
@@ -35,7 +34,14 @@ function switchSession(t, options) {
     const hostStyle = document.createElement('style')
     hostStyle.textContent = '.probe-switch-row { display: flex; justify-content: flex-start; padding-left: 60px; }'
     document.head.append(hostStyle)
-    if (titlebar) document.documentElement.setAttribute(windows, '')
+    const priorOverlay = Object.getOwnPropertyDescriptor(navigator, 'windowControlsOverlay')
+    if (titlebar) {
+      document.documentElement.setAttribute(windows, '')
+      const overlay = new EventTarget()
+      overlay.visible = true
+      overlay.getTitlebarAreaRect = () => new DOMRect(0, 0, window.innerWidth, 40)
+      Object.defineProperty(navigator, 'windowControlsOverlay', { configurable: true, value: overlay })
+    }
 
     const build = () => {
       const slot = document.createElement('div')
@@ -69,7 +75,6 @@ function switchSession(t, options) {
       const box = strip.list.getBoundingClientRect()
       return {
         strip: strip.row.hasAttribute(marks.strip),
-        row: strip.row.hasAttribute(marks.row),
         titlebar: strip.slot.hasAttribute(marks.titlebar),
         position: getComputedStyle(strip.row).position,
         left: Math.round(box.left),
@@ -111,18 +116,20 @@ function switchSession(t, options) {
     next.slot.remove()
     hostStyle.remove()
     if (titlebar) document.documentElement.removeAttribute(windows)
+    if (priorOverlay === undefined) delete navigator.windowControlsOverlay
+    else Object.defineProperty(navigator, 'windowControlsOverlay', priorOverlay)
     await settle()
     // cost: D40 — hands the prototype back to the page once the switch has painted.
     Element.prototype.getBoundingClientRect = originalRect
     return { painted, settled, inBatchCallback }
-  }, [HEADER, TABS, { strip: STRIP, row: ROW, titlebar: TITLEBAR }, options.batch, WINDOWS, options.titlebar])
+  }, [HEADER, TABS, { strip: STRIP, titlebar: TITLEBAR }, options.batch, WINDOWS, options.titlebar])
 }
 
 export default spec({ page: 'view-tabs-row' }, ({ test }) => {
   test('a strip a session switch mounts is centred in the first frame it paints', async (t) => {
     const { painted, settled, inBatchCallback } = await switchSession(t, { batch: 1500, titlebar: false })
     t.expectThat.equal(painted, settled, 'the frame the switch paints reads as the settled page')
-    t.expectThat.equal({ strip: painted.strip, row: painted.row }, { strip: true, row: true }, 'the strip and its row wear the skin\'s marks in that frame')
+    t.expectThat.equal(painted.strip, true, 'the strip\'s row wears the skin\'s mark in that frame')
     t.expectThat.equal(inBatchCallback, 0, 'the batch\'s own callback reads no box')
   })
 

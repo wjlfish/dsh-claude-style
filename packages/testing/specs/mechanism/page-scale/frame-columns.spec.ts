@@ -1,13 +1,9 @@
 /**
- * The host frame's three columns in a page drawn at a scale (D43, D81). The host
+ * The host frame's three columns in a page drawn at a scale (D43, D81): the host
  * measures the frame in the window's pixels and writes the columns in the page's,
- * so the grid is drawn at the scale again: the columns add up to a factor past
- * the window, the last column stands outside the frame, and a sidebar dragged to
- * a width is drawn that factor wider. A column narrowed to nothing is carried
- * like any other — it stands at zero in both spaces, and the `1fr` beside it
- * takes the rest of the page's own width. The sidebar's own box and its drag
- * handle carry the sidebar column's width a second and a third time, and are
- * carried with it.
+ * so the grid is drawn at the scale again, the columns add up to a factor past the
+ * window, and a sidebar dragged to a width is drawn that factor wider. A column
+ * narrowed to nothing stands at zero in both spaces.
  *
  * @capability page-scale
  * @features shared
@@ -151,6 +147,28 @@ test('a frame mounted after the rule runs is found and converted', async () => {
   const frame = hostFrame('280px 500px 400px')
   await settle()
   expect(columnsOf(frame)).toBe('224px 400px 320px')
+})
+
+test('a right column toggled in a session-sized batch is carried before that batch paints', async () => {
+  drawnAt(1.01)
+  const frame = hostFrame('280px minmax(400px, 1fr) minmax(0px, 0px)')
+  installed()
+  await settle()
+  const writes = [
+    ['280px minmax(400px, 1fr) minmax(0px, 400px)', '277.23px minmax(396.04px, 1fr) minmax(0px, 396.04px)'],
+    ['280px minmax(400px, 1fr) minmax(0px, 0px)', '277.23px minmax(396.04px, 1fr) minmax(0px, 0px)'],
+    ['280px minmax(400px, 1fr) minmax(0px, 400px)', '277.23px minmax(396.04px, 1fr) minmax(0px, 396.04px)'],
+  ] as const
+  for (const [written, expected] of writes) {
+    const mounted = document.createElement('div')
+    for (let index = 0; index < 120; index += 1) mounted.append(document.createElement('div'))
+    document.body.append(mounted)
+    frame.style.setProperty('grid-template-columns', written)
+    // A heavy batch reaches the observer before paint; a deferred callback would
+    // leave the host's unscaled columns standing for that frame.
+    await Promise.resolve()
+    expect(columnsOf(frame)).toBe(expected)
+  }
 })
 
 test('the teardown hands the host its own numbers back', async () => {

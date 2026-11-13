@@ -1,5 +1,5 @@
 {
-  "note": "The whole-document lookups the browser half still makes outside the modules that own them, one entry per file: what it counts, when those reads happen where that is known, and which of them are debt. A lookup in a refresh pass or a frame callback costs the page's own size on every frame of a long conversation, so the sanctioned readers are the engine host.ts's accessors (cacheFirstMatch caches a match and a miss until the page's structure changes), the engine bus.ts's observeMatches registry, the engine stylesheet.ts's own sheet, and the engine chat-dom.ts's two per-frame answers; every other site is recorded here and the list only shrinks. A read by an element's id is not counted: the browser answers it from its own index rather than by walking the tree, which is how the fold controls reach the body their aria-controls names. scripts/lint.mjs counts the sites the way this file records them: a file whose count rises is refused, a file whose count falls has to be written down again, and an entry whose count reaches zero is taken out.",
+  "note": "The whole-document lookups the browser half still makes outside the modules that own them, one entry per file: what it counts, when those reads happen where that is known, and which of them are debt. A lookup in a refresh pass or a frame callback costs the page's own size on every frame of a long conversation, so the sanctioned readers are the engine host.ts's accessors (cacheFirstMatch caches a match and a miss until the page's structure changes), the engine bus.ts's observeMatches registry, the engine stylesheet.ts's own sheet, and the engine chat-dom.ts's two per-frame answers; every other site is recorded here and the list only shrinks. A read by an element's id is not counted: the browser answers it from its own index rather than by walking the tree, which is how the fold controls reach the body their aria-controls names. scripts/checks/lint.mjs counts the sites the way this file records them: a file whose count rises is refused, a file whose count falls has to be written down again, and an entry whose count reaches zero is taken out.",
   "files": {
     "packages/client/src/features/hero-menu/hero-menu.ts": {
       "count": 1,
@@ -12,10 +12,6 @@
     "packages/client/src/features/permissions/permissions.ts": {
       "count": 2,
       "reason": "The cold start screen finds its mode strip inside the composer card, and the teardown sweeps the segment groups and the tier card's nodes in one call."
-    },
-    "packages/client/src/features/permissions/permission-tier-card.ts": {
-      "count": 1,
-      "reason": "The tier card's popover is swept when one is built."
     },
     "packages/client/src/features/model/model-cards.ts": {
       "count": 2,
@@ -47,7 +43,7 @@
     },
     "packages/client/src/features/context-stats/stats-panel.ts": {
       "count": 2,
-      "reason": "The context block and panel marks, swept once when the statistics are installed."
+      "reason": "The stray context block and panel marks swept once when the statistics are installed; composer cards come from the engine's card registry."
     },
     "packages/client/src/features/context-stats/session-stats.ts": {
       "count": 2,

@@ -6,7 +6,7 @@ import { ensureSeatBox, ensureSeatPart } from './seat-box'
 import type { SeatPart } from './seat-box'
 import { loadModelCopy } from './model-copy'
 import { readPrefs } from '../../core/prefs'
-import { findModelSlot, withSlots } from '@dsh-claude-style/engine/host'
+import { findPrimaryModelSlot, withSlots } from '@dsh-claude-style/engine/host'
 import { createModelCatalog } from './catalog'
 import { MODEL_SLOT_KEY, thirdPartyHoldsSeat } from './seat-ledger'
 import { createModelSubMenu } from './sub-menu'
@@ -27,6 +27,8 @@ import { createModelCards } from './model-cards'
 
 /** What the effort picker and the settings page read off the model picker (ui.model). */
 export interface ModelHandle extends FeatureHandle {
+  /** The provider the shown session routes to, or null before the catalog answers. */
+  provider(): string | null
   /** The scheduler's own dismiss route; the effort picker calls it with no reason. */
   close(reason?: CloseReason): void
   /** The skin's seat box: the model's text and the effort level's share it (seat-box.ts). */
@@ -181,7 +183,9 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>, mount:
         const peakrate = ui.peakrate
         if (peakrate === undefined) return null
         return peakrate.badge(provider, modelId)
-      }
+      },
+      /** Both cards hang above the seat: a fold's new height moves their top. */
+      reposition: () => cards.position(),
   })
 
   /**
@@ -206,23 +210,12 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>, mount:
   }
 
   /**
-   * What the rows' rates depend on, in one value the render signatures carry.
-   * The catalog is the meter feature's (its generation moves when one arrives).
-   * The minute is not part of it: a closed card is not repainted by the clock,
-   * and the minute reaches the rows through refreshRateBadges instead.
-   */
-  function rateSignature() {
-    const peakrate = ui.peakrate
-    if (peakrate === undefined) return ''
-    return `${peakrate.epoch()}`
-  }
-
-  /**
    * Swap both cards' rate meters for the current ones (rows.ts owns the rows
    * and their identity). The badge is the one minute-sensitive part of a row
-   * (the countdown to the rate switch), and the card open and the minute
-   * rollover call this instead of the full paint: with a four-digit catalog
-   * the full paint is the open lag the feature cannot afford on every open.
+   * (the countdown to the rate switch), and the card open, the minute
+   * rollover and an arriving catalog call this instead of the full paint: a
+   * page that reloads paints its rows before the catalog lands, and rebuilding
+   * them for the badges would flash the whole list.
    */
   function refreshRateBadges() {
     modelRows.refreshRates()
@@ -266,7 +259,7 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>, mount:
     const status = snap ? snap.status : 'idle'
     const groups = (snap && snap.groups) || []
     const current = modelCatalog.current(snap)
-    let sig = [status, activeLocale(), current ? `${current.group.id}/${current.model.id}` : '', readPrefs().quickProviders.join(','), readPrefs().modelDescriptions !== false, rateSignature()].join('|')
+    let sig = [status, activeLocale(), current ? `${current.group.id}/${current.model.id}` : '', readPrefs().quickProviders.join(','), readPrefs().modelDescriptions !== false].join('|')
     sig += rowsSignature(groups)
     if (sig === modelBodySig) {
       modelRows.refreshRates()
@@ -295,12 +288,15 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>, mount:
           // The official source needs no naming, and the first section needs
           // no rule: a bare line above the list would be one line too many.
           const sectionLabel = section.id === MODEL_OFFICIAL_GROUP ? '' : modelGroupName(section.id, section.name)
-          if (sectionLabel !== '' || s > 0) modelBody.appendChild(modelRows.buildProviderRule(sectionLabel))
           const sectionModels = section.models.slice().sort(byModelId)
-          for (let m = 0; m < sectionModels.length; m++) {
-            const selected = current !== null && current.group.id === section.id && current.model.id === sectionModels[m].id
-            modelBody.appendChild(modelRows.buildModelOption(section, sectionModels[m], selected, true))
+          if (s === 0 && sectionLabel === '') {
+            for (const model of sectionModels) {
+              const selected = current !== null && current.group.id === section.id && current.model.id === model.id
+              modelBody.appendChild(modelRows.buildModelOption(section, model, selected, true))
+            }
+            continue
           }
+          modelBody.appendChild(modelRows.buildProviderGroup(section, sectionModels, sectionLabel, current, true))
         }
       }
       // The current seat is surfaced under the list when none of the sections
@@ -327,11 +323,12 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>, mount:
       // scrolls under them while the row stays reachable. The effort slider
       // is not here any more: it has its own trigger and card.
       if (cards.footer()) {
-        // "More models" carries what level 1 does not. A catalog with more than
-        // one provider carries the whole of it and the search field above it: a
-        // first level that lists every provider would otherwise leave the reader
-        // no way to look a model up.
-        const showMore = modelRows.remainingGroups(groups, sections).length > 0 || groups.length > 1
+        // "More models" carries what level 1 does not. A first level that
+        // already lists every provider leaves it nothing to carry, so the row
+        // goes away with the last remaining provider (issue #286): the search
+        // field is still reached by typing a key on level 1 (onKey below), and
+        // the second level lists the whole catalog once it is opened that way.
+        const showMore = modelRows.remainingGroups(groups, sections).length > 0
         // The divider exists to close the list off from what follows it. With
         // no More-models row there is nothing left to close off, and a bare
         // line under the list reads as a stray rule. layoutModelFooter owns
@@ -354,7 +351,7 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>, mount:
     const sections = modelRows.levelOneSections(groups)
     const listed: string[] = []
     for (let s = 0; s < sections.length; s++) listed.push(sections[s].id)
-    let sig = `more|${listed.join(',')}|${rateSignature()}`
+    let sig = `more|${listed.join(',')}`
     sig += rowsSignature(groups)
     if (current) sig += `#${current.group.id}/${current.model.id}`
     return sig
@@ -416,17 +413,21 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>, mount:
     loadModelCopy()
     modelCatalog.directory()
     modelCatalog.warm()
-    const slot = mount.slot ?? findModelSlot()
+    // The seat stands in the page's main composer: a sub-agent's docked
+    // conversation draws a card of its own, and the shell the reader types in
+    // must not lose its model seat to one (engine/host.ts::findPrimaryModelSlot).
+    const slot = mount.slot ?? findPrimaryModelSlot()
     modelSlot = slot
     if (slot === null) return
     // Hide the host's own seat (React owns the node; re-mark on swap).
     // Idempotent against a torn-down-less reload, like the account footer:
     // client HMR drops the old fiber's disposals, so a previous generation's
     // trigger and popovers are still in the DOM while this fresh scope starts
-    // from null. Sweep the strays, or the seat renders twice.
+    // from null. Sweep the strays, or the seat renders twice. The popovers'
+    // own sweep runs once at install: it walks the whole document, and this
+    // path runs every pass.
     removeStrayNodes(slot, '.dsh-claude-model-seat', [seatBox])
     removeStrayNodes(slot, '.dsh-claude-model-btn', [modelBtn])
-    cards.sweep()
     // The host's own seat root, not the nodes the skin appended beside it: a
     // swap can put React's node after ours, and the effort level and the
     // context meter's ring stand in the same slot. It is hidden only while the
@@ -537,8 +538,17 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>, mount:
     ctx.effect(() => ctx.on!('slots/changed', () => { ui.schedule?.() }), 'dsh-claude-style: model seat ledger')
   }
 
+  // One sweep of this generation's strays, before the first pass: a document
+  // walk belongs here rather than on the pass, which runs every frame.
+  cards.sweep()
+
   ui.model = {
     sync: syncModelControl,
+    // Who the session routes to: the statistics read it to tell the platform's
+    // own billing from a provider that settles elsewhere.
+    provider() {
+      return modelCatalog.snapshot()?.current?.provider ?? null
+    },
     // The seat sits on the composer, outside the column a streaming batch
     // touches, so such a batch skips this pass (D40).
     skipOnContentOnly: true,

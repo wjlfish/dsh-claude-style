@@ -58,6 +58,8 @@ export function createUsageRow(options: { source: HomeLayoutHandle, onPick(): vo
 
   return {
     sync,
+    /** The row's element, for a caller that has to order it against its own nodes. */
+    element: row,
     destroy() {
       row.remove()
       container = null

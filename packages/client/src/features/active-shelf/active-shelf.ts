@@ -1,5 +1,5 @@
 import { DATE_VIEW_TOGGLE_EVENT } from '../date-groups/date-groups'
-import { readPrefs, subscribePrefs } from '../../core/prefs'
+import { hostTooltip } from '../../shared/host-tooltip'
 import { observeMatches } from '@dsh-claude-style/engine/bus'
 import { buildElement } from '@dsh-claude-style/engine/dom'
 import { QUIET_ATTR } from '../../constants'
@@ -7,6 +7,7 @@ import { copy } from './copy'
 import { watchSidebar } from '../../shared/sidebar-watch'
 import { requestFrame } from '@dsh-claude-style/engine/frame'
 import type { HostContext } from '@dsh-claude-style/engine/host'
+import type { HostTooltip } from '../../shared/host-tooltip'
 
 /**
  * The sidebar's workspace section header: the bell that switches the date view.
@@ -44,6 +45,8 @@ export function install(ctx: HostContext) {
   let actions: HTMLElement | null = null
   /** 铃铛本身。 */
   let trigger: HTMLButtonElement | null = null
+  /** 铃铛的宿主提示气泡：换文案与拆掉时一起管。 */
+  let tip: HostTooltip | null = null
   /** 等这一帧写。 */
   let cancelFrame: (() => void) | null = null
 
@@ -51,7 +54,7 @@ export function install(ctx: HostContext) {
   function buildTrigger() {
     const button = buildElement('button', 'dsh-claude-active-shelf-trigger')
     button.type = 'button'
-    button.setAttribute('aria-label', copy('toggleDateView'))
+    button.setAttribute('aria-label', copy('viewByDate'))
     quiet(button)
     const icon = buildElement('span', 'dsh-claude-active-shelf-trigger-icon')
     icon.innerHTML = BELL_SVG
@@ -59,7 +62,7 @@ export function install(ctx: HostContext) {
     button.addEventListener('click', event => {
       event.preventDefault()
       event.stopPropagation()
-      // 默认还是宿主的「工作区 + 会话」，按它才把整个列表换成按日期排列，再按一次换回去。
+      // 日期视图默认关着：按它排成日期段落，再按一次换回宿主的「工作区 + 会话」。
       document.dispatchEvent(new CustomEvent(DATE_VIEW_TOGGLE_EVENT))
     })
     return button
@@ -91,14 +94,10 @@ export function install(ctx: HostContext) {
       actions = buildElement('div', 'dsh-claude-active-shelf-actions')
       quiet(actions)
       trigger = buildTrigger()
-      actions.appendChild(trigger)
-    }
-    // 铃铛跟着日期视图的开关：那边关掉之后页面里没有会接它的人，这里也就不挂出来。
-    const wanted = readPrefs().dateGroups !== false
-    if (trigger !== null) {
-      const bellStands = trigger.parentElement === actions
-      if (wanted && !bellStands) actions.appendChild(trigger)
-      if (!wanted && bellStands) actions.removeChild(trigger)
+      // 铃铛由皮肤拼出来，提示仍用宿主自己的气泡：浏览器原生的 title 会和宿主
+      // 的提示同屏露出两种样式。气泡的锚点包一层 display: contents，不占排布。
+      tip = hostTooltip(trigger, copy('viewByDate'), { side: 'bottom' })
+      actions.appendChild(tip.node)
     }
     const hostActions = header.querySelector<HTMLElement>(SECTION_ACTIONS_SELECTOR)
     const stands = actions.parentElement === header &&
@@ -108,12 +107,15 @@ export function install(ctx: HostContext) {
     else header.appendChild(actions)
   }
 
-  /** 一遍：挂好铃铛，再让它说实话（按下态）。 */
+  /** 一遍：挂好铃铛，再让它说实话（按下态与名字）。 */
   function pass() {
     seatActions()
     if (trigger === null) return
-    const pressed = document.body.hasAttribute(DATE_VIEW_ATTRIBUTE) ? 'true' : 'false'
-    if (trigger.getAttribute('aria-pressed') !== pressed) trigger.setAttribute('aria-pressed', pressed)
+    const pressed = document.body.hasAttribute(DATE_VIEW_ATTRIBUTE)
+    const label = pressed ? copy('viewByWorkspace') : copy('viewByDate')
+    if (trigger.getAttribute('aria-pressed') !== String(pressed)) trigger.setAttribute('aria-pressed', String(pressed))
+    if (trigger.getAttribute('aria-label') !== label) trigger.setAttribute('aria-label', label)
+    tip?.setLabel(label)
   }
 
   /** 等这一帧写：宿主的重建会连着来几次，攒到一帧里只做一遍。 */
@@ -131,16 +133,15 @@ export function install(ctx: HostContext) {
   const stopWatch = watchSidebar(schedule)
   /** 侧栏里的分区标题行，由总线按选择器维护（D40）：标题行重建时铃铛跟着重挂。 */
   const headerWatch = observeMatches<HTMLElement>(SECTION_HEADER_SELECTOR, schedule)
-  // 日期视图那个开关变了：铃铛跟着挂上或摘下。
-  const stopPrefs = subscribePrefs(() => schedule())
 
   pass()
 
   return () => {
-    stopPrefs()
     stopWatch()
     headerWatch.release()
     if (cancelFrame !== null) cancelFrame()
+    tip?.release()
+    tip = null
     if (actions !== null && actions.parentElement !== null) actions.parentElement.removeChild(actions)
     trigger = null
     actions = null

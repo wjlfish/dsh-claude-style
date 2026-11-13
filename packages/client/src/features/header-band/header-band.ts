@@ -2,11 +2,11 @@ import * as React from 'react'
 import * as primitives from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   CONVERSATION_HEADER_SELECTOR,
+  HEADER_ACTIONS_SELECTOR,
   HEADER_CORNER_SELECTOR,
   HEADER_TITLE_ROW_SELECTOR,
   HEADER_TITLE_SELECTOR,
   HEADER_UTILITIES_SELECTOR,
-  VIEW_TABS_LIST_SELECTOR,
   VIEW_TABS_STRIP_SELECTOR,
 } from '@dsh-claude-style/contracts/dom'
 import { observeMatches, observeSize } from '@dsh-claude-style/engine/bus'
@@ -19,6 +19,7 @@ import type { FeatureUi } from '../../core/feature'
 import type { HostContext } from '@dsh-claude-style/engine/host'
 import type manifest from './header-band.manifest'
 import { copy } from './copy'
+import { placeCaptionRow } from './placement'
 
 /**
  * The conversation header's title row, lifted into the desktop caption row.
@@ -29,10 +30,11 @@ import { copy } from './copy'
  * side whose measured room is too small writes nothing and stays in the row,
  * which is the stylesheet's base rule, so a failed placement needs no undoing.
  *
- * The row the title leaves rises by a relative offset: a margin would change its
- * height inside the header's grid and move the conversation, and a relative
- * offset creates no containing block for the fixed pieces. The host's container
- * query hides chip labels to protect the title, so this mode shows them again.
+ * The row the title leaves rises by a relative offset, which creates no
+ * containing block for the fixed pieces; the header then closes to that row, so
+ * the height the title held is not left standing empty above the conversation.
+ * The host's container query hides chip labels to protect the title, so this
+ * mode shows them again.
  * The marks ride the header, since a body write here would invalidate the whole
  * document on every page change (D9). The sidebar collapse animates width with
  * no DOM change, which is why the title row's size is subscribed.
@@ -47,17 +49,22 @@ import { copy } from './copy'
 export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>) {
   /** The body marker: which parts of the row the caption row holds, as a token list. */
   const BAND_ATTR = 'data-dsh-header-band'
-  /** The title's stamp, and the numbers its rule reads. */
+  /** The title's stamp. */
   const TITLE_ATTR = 'data-dsh-header-title'
+  /**
+   * The numbers every piece the caption row holds reads, written on the piece
+   * itself: where it stands, how wide its place is, and the row's middle it is
+   * centred on.
+   */
   const TITLE_LEFT = '--dsh-header-band-left'
   const TITLE_MAX = '--dsh-header-band-max'
   const TITLE_TOP = '--dsh-header-band-title-top'
   /**
-   * How far below the caption row's middle the title sits: its text draws 20px
-   * in a 28px box, so a box centred on the row leaves the line reading high
-   * against the controls beside it.
+   * The cluster the host keeps beside the title — the preset picker and the
+   * chips the session mounts there. Left in the row it carries no stamp and the
+   * row keeps the height it takes there.
    */
-  const TITLE_NUDGE = 2
+  const TRAIL_ATTR = 'data-dsh-header-trail'
   /**
    * The row's own stamp and the negative top margin its rule reads: with the
    * title gone the row holds only the controls, and the host's top inset for a
@@ -65,6 +72,14 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>) {
    */
   const ROW_ATTR = 'data-dsh-header-row'
   const ROW_LIFT = '--dsh-header-band-row-lift'
+  /**
+   * The header's top inset once it has closed around that row, measured from
+   * the row's target and the header's own edge. The host's inline inset predates
+   * the title's move, so the stylesheet has to stand over it.
+   */
+  const ROW_TOP = '--dsh-header-band-top'
+  /** The measured caption height shared by the title and the fixed controls. */
+  const BAND_HEIGHT = '--dsh-header-band-height'
   /** The two control clusters' stamps, and the right offset both rules read. */
   const ACTIONS_ATTR = 'data-dsh-header-actions'
   const CORNER_ATTR = 'data-dsh-header-corner'
@@ -79,18 +94,6 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>) {
   /** The two tokens the body marker carries. */
   const TITLE_TOKEN = 'title'
   const ACTIONS_TOKEN = 'actions'
-  /** The air between anything placed here and its neighbour. */
-  const GAP = 8
-  /**
-   * The air the row the title left keeps under the title's own box. The caption
-   * row is the window's strip, and a row crossing into it paints under the
-   * shell's chrome: its top is placed this far below the title's box instead.
-   */
-  const ROW_GAP = 8
-  /** What the row keeps clear at its left end when the shell mounts no menu seat: the sidebar's control. */
-  const FURNITURE = 48
-  /** Below this a lifted title would be a stub: it stays in the row instead. */
-  const MIN_TITLE = 120
   /** The host's seat in the header's own row that the header utilities land in. */
   const UTILITIES_SLOT = 'conversation.session.header.utilities'
   /** The skin's own control there, which the stylesheet paints and the pass shows. */
@@ -98,6 +101,7 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>) {
 
   const rowStamp = createStamp<HTMLElement>(ROW_ATTR)
   const titleStamp = createStamp<HTMLElement>(TITLE_ATTR)
+  const trailStamp = createStamp<HTMLElement>(TRAIL_ATTR)
   const actionsStamp = createStamp<HTMLElement>(ACTIONS_ATTR)
   const cornerStamp = createStamp<HTMLElement>(CORNER_ATTR)
   const tabsStamp = createStamp<HTMLElement>(TABS_ATTR)
@@ -105,11 +109,13 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>) {
   let watched: HTMLElement | null = null
   /** Stops watching it. */
   let stopSize: (() => void) | null = null
+  /** The cluster's needed width, measured while nothing capped it (D9). */
+  let clusterNeed: number | null = null
   /** Every candidate title row, kept current by the bus (D40), and the one this pass took. */
   const titleRows = observeMatches<HTMLElement>(HEADER_TITLE_ROW_SELECTOR)
   let keptRow: HTMLElement | null = null
   /** The header carrying BAND_ATTR right now, or null. */
-  let bandHost: Element | null = null
+  let bandHost: HTMLElement | null = null
   /** Every control the skin registered for the right panel, kept current by the bus (D40). */
   const closeButtons = observeMatches<HTMLElement>(`.${CLOSE_CLASS}`)
 
@@ -153,7 +159,7 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>) {
 
   /** Register that control in the header's utilities seat, which renders it wherever it stands. */
   function registerRightbarClose() {
-    registerSlotEntries(ctx, [{
+    return registerSlotEntries(ctx, [{
       options: { name: UTILITIES_SLOT, id: 'claude-style-rightbar-close', order: 90 },
       component: RightbarClose,
     }], 'dsh-claude-style: right panel control')
@@ -211,20 +217,27 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>) {
     return inPagePixels(document.documentElement.clientWidth)
   }
 
-  /** Write one placement number, and nothing when it is already the one there. */
+  /** Write one placement number, and report whether it moved. */
   function setVar(element: HTMLElement, name: string, value: string) {
-    if (element.style.getPropertyValue(name) !== value) element.style.setProperty(name, value)
+    if (element.style.getPropertyValue(name) === value) return false
+    element.style.setProperty(name, value)
+    return true
   }
 
   /** Hand the row back: no placement, no marks. */
   function clear() {
     rowStamp.release()
     titleStamp.release()
+    trailStamp.release()
     actionsStamp.release()
     cornerStamp.release()
     tabsStamp.release()
-    bandHost?.removeAttribute(BAND_ATTR)
-    bandHost = null
+    if (bandHost !== null) {
+      bandHost.removeAttribute(BAND_ATTR)
+      bandHost.style.removeProperty(ROW_TOP)
+      bandHost.style.removeProperty(BAND_HEIGHT)
+      bandHost = null
+    }
   }
 
   /**
@@ -251,17 +264,24 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>) {
     /** The window's width (pageWidth), read with the boxes. */
     width: number
     row: HTMLElement
-    header: Element | null
+    header: HTMLElement | null
     title: HTMLElement | null
+    trail: HTMLElement | null
     utilities: HTMLElement | null
     corner: HTMLElement | null
     stripEl: HTMLElement | null
     rowBox: DOMRect | null
+    headerBox: DOMRect | null
     stripBox: DOMRect | null
     menuBox: DOMRect | null
     utilitiesBox: DOMRect | null
     cornerBox: DOMRect | null
     titleBox: DOMRect | null
+    trailBox: DOMRect | null
+    /** The width the title's words need, past any limit an earlier pass wrote. */
+    titleNatural: number
+    /** The width the cluster needs, measured while nothing capped it (D9). */
+    trailNeed: number
   }
 
   /** The reading this pass places against, and whether `measure` took it for this pass. */
@@ -284,31 +304,45 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>) {
       reading = null
       return
     }
-    const header = row.closest(CONVERSATION_HEADER_SELECTOR)
+    const header = row.closest<HTMLElement>(CONVERSATION_HEADER_SELECTOR)
     const title = row.querySelector<HTMLElement>(HEADER_TITLE_SELECTOR)
+    const trail = row.querySelector<HTMLElement>(HEADER_ACTIONS_SELECTOR)
     const utilities = row.querySelector<HTMLElement>(HEADER_UTILITIES_SELECTOR)
     const corner = row.querySelector<HTMLElement>(HEADER_CORNER_SELECTOR)
     const stripEl = header === null ? null : header.querySelector<HTMLElement>(VIEW_TABS_STRIP_SELECTOR)
-    const stripList = stripEl === null ? null : stripEl.querySelector<HTMLElement>(VIEW_TABS_LIST_SELECTOR)
+    const titleBox = rect(title)
+    const trailBox = rect(trail)
+    // The cluster's need is measured while nothing of ours caps it, which is the
+    // one state its box answers the question: a capped cluster measures at the
+    // cap (D9). The pass writes no limit on the cluster, so this re-read never
+    // follows a limit of its own writing.
+    if (trail !== null && trailBox !== null && trail.style.getPropertyValue(TITLE_MAX) === '') clusterNeed = trailBox.width
     reading = {
       band: pageBand(band),
       width: pageWidth(),
       row,
       header,
       title,
+      trail,
       utilities,
       corner,
       stripEl,
       rowBox: rect(row),
-      // The strip's own box when the host draws the tablist as the strip itself,
-      // and the plate and overflow button standing in its row when it draws them
-      // inside one (shared/content-box.ts): the row spans the header, so its own
-      // box would reserve the window for the tabs.
-      stripBox: stripEl === null ? null : stripList === null ? rect(stripEl) : contentBox(stripEl),
+      headerBox: rect(header),
+      // The plate and overflow button standing in the strip's row
+      // (shared/content-box.ts): the row spans the header, so its own box would
+      // reserve the window for the tabs.
+      stripBox: stripEl === null ? null : contentBox(stripEl),
       menuBox: rect(findWindowsMenu()),
       utilitiesBox: rect(utilities),
       cornerBox: rect(corner),
-      titleBox: rect(title),
+      titleBox,
+      trailBox,
+      // The host draws the crumb ellipsized inside the width this pass last
+      // wrote, so the box is that width; what the words take is the scrollable
+      // content, which a cap does not change.
+      titleNatural: title === null ? 0 : Math.max(titleBox === null ? 0 : titleBox.width, title.scrollWidth),
+      trailNeed: clusterNeed === null ? 0 : clusterNeed,
     }
   }
 
@@ -332,87 +366,70 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>) {
       return
     }
     // Only a strip the view-tabs feature has already lifted shares the caption
-    // row; one still drawn in the header's own row takes nothing from it. Its
-    // room is read off the width rather than the box: view-tabs centres it on
-    // the window, this pass then moves it, and a fit decided against the moved
-    // box would answer differently on the next pass. The box is the strip's
-    // content (the plate and the overflow button), because the row the host
-    // draws them in spans the header (shared/content-box.ts).
+    // row; one still drawn in the header's own row takes nothing from it. The box
+    // is the strip's content (the plate and the overflow button), because the row
+    // the host draws them in spans the header (shared/content-box.ts).
     const stripEl = current.stripEl
     const stripBox = current.stripBox
     const inBand = stripBox !== null && stripBox.top < band.height
     const stripWidth = stripBox === null || !inBand ? 0 : stripBox.width
-    const stripRight = stripWidth === 0 ? 0 : current.width / 2 + stripWidth / 2
-    // The shell's own menu seat takes the row's left end, and the collapsed
-    // sidebar's control sits left of it whether the seat is mounted or not.
-    const menuBox = current.menuBox
-    const furniture = menuBox === null ? FURNITURE : Math.max(FURNITURE, menuBox.right)
-    // Either cluster can be missing: the corner seat is empty while the right
-    // sidebar is open, whose own chrome carries those controls. The cluster
-    // that is there still belongs in the caption row, and a missing one leaves
-    // no air behind.
-    const utilitiesBox = current.utilitiesBox
-    const cornerBox = current.cornerBox
-    const utilitiesWidth = utilitiesBox === null ? 0 : utilitiesBox.width
-    const cornerWidth = cornerBox === null ? 0 : cornerBox.width
-    const clusterWidth = utilitiesWidth + cornerWidth + (utilitiesBox === null || cornerBox === null ? 0 : GAP)
-    // The caption buttons' reserve, and the air this skin keeps off it. The
-    // width is the one fixed boxes are placed in: the document's client width
-    // leaves out a page scrollbar, which `innerWidth` counts.
-    const edge = current.width - band.controls.size - GAP
-    const cornerRight = band.controls.size + GAP
-    // The controls hang off the right edge, so whether they fit does not
-    // depend on the title; the title then takes what is left of the row's
-    // left end, up to the first thing in its way.
-    const liftActions = clusterWidth > 0 &&
-      edge - clusterWidth >= Math.max(furniture, stripRight) + GAP
-    const left = Math.max(rowBox.left, furniture + GAP)
-    // Where the row's right-hand content ends: the controls when they are lifted,
-    // the caption buttons when they stayed in the row.
-    const rightStop = liftActions ? edge - clusterWidth : current.width - band.controls.size
-    // The title's room runs up to that end, less the strip's own width and the
-    // air on both sides of it: the strip is centred in what is left between the
-    // two, so its width is reserved here rather than read off a position it is
-    // about to leave.
-    const room = rightStop - GAP - (inBand ? stripWidth + GAP : 0) - left
-    const titleBox = current.titleBox
-    const liftTitle = title !== null && room >= MIN_TITLE
-    // The row the title leaves holds only controls, and the host's inset for a
-    // row that still carried a title would leave them floating below the caption
-    // row. It rides up to stand its top ROW_GAP below the title's box, which the
-    // stylesheet centres in the caption row — the target is computed rather than
-    // read, because the title's box is not there yet on the pass that lifts it
-    // and nothing would wake a second pass. Where the offset already applied is
-    // taken back out, or the pass would read the raised row as needing no rise.
-    const titleHeight = titleBox === null ? 0 : titleBox.height
-    const titleCentre = band.height / 2 + TITLE_NUDGE
+    // Where the row's lift already applied is taken back out, or the pass would
+    // read the raised row as needing no rise.
     const applied = parseFloat(row.style.getPropertyValue(ROW_LIFT))
-    const rise = !liftTitle ? 0 : Math.max(0, Math.round(rowBox.top - (isFinite(applied) ? applied : 0) - (titleCentre + titleHeight / 2 + ROW_GAP)))
-
+    const placement = placeCaptionRow({
+      width: current.width,
+      bandHeight: band.height,
+      controls: band.controls.size,
+      rowLeft: rowBox.left,
+      menuRight: current.menuBox === null ? null : current.menuBox.right,
+      strip: { width: stripWidth, inBand },
+      title: { present: title !== null, width: current.titleBox === null ? 0 : current.titleBox.width, natural: current.titleNatural },
+      trail: { present: current.trail !== null, width: current.trailBox === null ? 0 : current.trailBox.width, need: current.trailNeed },
+      utilities: { present: current.utilitiesBox !== null, width: current.utilitiesBox === null ? 0 : current.utilitiesBox.width },
+      corner: { present: current.cornerBox !== null, width: current.cornerBox === null ? 0 : current.cornerBox.width },
+      row: { top: rowBox.top, applied: isFinite(applied) ? applied : 0 },
+      titleHeight: current.titleBox === null ? 0 : current.titleBox.height,
+    })
+    const liftTitle = placement.lift.title
+    const liftActions = placement.lift.actions
     rowStamp.mark(liftTitle ? row : null)
-    if (liftTitle) setVar(row, ROW_LIFT, `${-rise}px`)
-    titleStamp.mark(liftTitle ? title : null)
-    if (liftTitle && title !== null) {
-      setVar(title, TITLE_LEFT, `${Math.round(left)}px`)
-      setVar(title, TITLE_MAX, `${Math.round(room)}px`)
-      setVar(title, TITLE_TOP, `${Math.round(titleCentre)}px`)
+    if (liftTitle) setVar(row, ROW_LIFT, `${-placement.rowLift}px`)
+    // The header closes to the row it no longer shares with the title: its top
+    // inset becomes the air between its own edge and that row, so the height the
+    // title held is not left standing empty above the conversation. A header
+    // whose box was not read keeps the host's inset, the stylesheet's fallback.
+    if (placement.title !== null && current.header !== null && current.headerBox !== null) {
+      setVar(current.header, ROW_TOP, `${Math.max(0, Math.round(placement.rowTop - current.headerBox.top))}px`)
+    } else if (current.header !== null) {
+      current.header.style.removeProperty(ROW_TOP)
     }
-    actionsStamp.mark(liftActions && utilitiesBox !== null ? utilities : null)
-    cornerStamp.mark(liftActions && cornerBox !== null ? corner : null)
-    if (liftActions) {
-      const utilitiesRight = cornerRight + (cornerBox === null ? 0 : cornerWidth + GAP)
-      if (utilities !== null && utilitiesBox !== null) setVar(utilities, ACTIONS_RIGHT, `${Math.round(utilitiesRight)}px`)
-      if (corner !== null && cornerBox !== null) setVar(corner, ACTIONS_RIGHT, `${Math.round(cornerRight)}px`)
+    titleStamp.mark(placement.title === null ? null : title)
+    if (placement.title !== null && title !== null) {
+      setVar(title, TITLE_LEFT, `${placement.title.left}px`)
+      // The title's room runs up to the cluster standing beside it, and no
+      // further; without one it is the row's whole run.
+      setVar(title, TITLE_MAX, `${placement.title.max}px`)
+      setVar(title, TITLE_TOP, `${placement.title.top}px`)
     }
+    const trail = current.trail
+    trailStamp.mark(placement.trail === null ? null : trail)
+    if (placement.trail !== null && trail !== null) {
+      setVar(trail, TITLE_LEFT, `${placement.trail.left}px`)
+      setVar(trail, TITLE_TOP, `${placement.trail.top}px`)
+      // A limit this element still carries from an earlier placement would be
+      // measured as its width and squeeze the chips it holds.
+      if (trail.style.getPropertyValue(TITLE_MAX) !== '') trail.style.removeProperty(TITLE_MAX)
+    }
+    actionsStamp.mark(placement.utilitiesRight === null ? null : utilities)
+    cornerStamp.mark(placement.cornerRight === null ? null : corner)
+    if (placement.utilitiesRight !== null && utilities !== null) setVar(utilities, ACTIONS_RIGHT, `${placement.utilitiesRight}px`)
+    if (placement.cornerRight !== null && corner !== null) setVar(corner, ACTIONS_RIGHT, `${placement.cornerRight}px`)
     // view-tabs centres the strip on the window; with the title and the controls
     // standing on either side of it that stops reading as the middle of the row,
     // so it takes the middle of what is left between them — or between the
     // shell's own left end and the caption buttons when a side stayed in the row.
     const stripInBand = inBand && stripEl !== null
-    if (stripInBand && stripEl !== null) {
-      const leftStop = liftTitle && titleBox !== null ? left + titleBox.width : furniture
-      setVar(stripEl, TABS_LEFT, `${Math.round((leftStop + rightStop) / 2)}px`)
-    }
+    if (stripInBand && stripEl !== null && placement.stripLeft !== null) setVar(stripEl, TABS_LEFT, `${placement.stripLeft}px`)
     tabsStamp.mark(stripInBand ? stripEl : null)
 
     // The tokens ride the header itself: they change on every page the row
@@ -421,11 +438,20 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>) {
     const tokens = `${liftTitle ? TITLE_TOKEN : ''} ${liftActions ? ACTIONS_TOKEN : ''}`.trim()
     const header = current.header
     if (tokens === '' || header === null) {
-      bandHost?.removeAttribute(BAND_ATTR)
-      bandHost = null
+      if (bandHost !== null) {
+        bandHost.removeAttribute(BAND_ATTR)
+        bandHost.style.removeProperty(ROW_TOP)
+        bandHost.style.removeProperty(BAND_HEIGHT)
+        bandHost = null
+      }
     } else {
-      if (bandHost !== null && bandHost !== header) bandHost.removeAttribute(BAND_ATTR)
+      if (bandHost !== null && bandHost !== header) {
+        bandHost.removeAttribute(BAND_ATTR)
+        bandHost.style.removeProperty(ROW_TOP)
+        bandHost.style.removeProperty(BAND_HEIGHT)
+      }
       bandHost = header
+      setVar(header, BAND_HEIGHT, `${band.height}px`)
       setAttributeIfChanged(header, BAND_ATTR, tokens)
     }
   }
@@ -434,11 +460,14 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>) {
   // a streaming batch touches, so such a batch skips this pass (D40). The boxes
   // are read in the pass's read phase and written in its write phase.
   ui.headerBand = { measure, sync, skipOnContentOnly: true }
-  registerRightbarClose()
+  // The slot entry is this generation's: the fiber is what takes it back when
+  // the reader switches the band off, or another owner hands the page over.
+  const closeButtonSlot = registerRightbarClose()
 
   return () => {
     const row = rowStamp.current()
     const title = titleStamp.current()
+    const trail = trailStamp.current()
     const utilities = actionsStamp.current()
     const corner = cornerStamp.current()
     const strip = tabsStamp.current()
@@ -448,6 +477,11 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>) {
       title.style.removeProperty(TITLE_MAX)
       title.style.removeProperty(TITLE_TOP)
     }
+    if (trail !== null) {
+      trail.style.removeProperty(TITLE_LEFT)
+      trail.style.removeProperty(TITLE_MAX)
+      trail.style.removeProperty(TITLE_TOP)
+    }
     if (utilities !== null) utilities.style.removeProperty(ACTIONS_RIGHT)
     if (corner !== null) corner.style.removeProperty(ACTIONS_RIGHT)
     if (strip !== null) strip.style.removeProperty(TABS_LEFT)
@@ -455,6 +489,7 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>) {
     watch(null)
     titleRows.release()
     closeButtons.release()
+    if (closeButtonSlot !== null) closeButtonSlot.dispose()
     keptRow = null
     delete ui.headerBand
   }

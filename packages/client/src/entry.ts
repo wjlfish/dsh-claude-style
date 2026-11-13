@@ -1,10 +1,12 @@
 import { ACCOUNT_MENU_ATTR, HANDOFF_ATTR, HERO_MENU_ATTR, HOLDS_ATTR, MORE_MENU_ATTR, PACKAGE_NAME, PART_ATTR, QUIET_ATTR, READER_HOLD_ATTR } from './constants'
+import { closeHostSeats } from '@dsh-claude-style/engine/host'
 import { installParts } from '@dsh-claude-style/engine/parts'
 import { installPageScale } from './shared/page-scale'
 import { adoptSkin } from '@dsh-claude-style/engine/skin'
 import { motionReduced } from './core/prefs'
 import { setHostContext } from './core/host-context'
 import { loadHdsl, loadUsername } from './shared/identity'
+import { installWebfonts } from './shared/webfonts'
 import type { HostContext } from '@dsh-claude-style/engine/host'
 import { loadModelCopy } from './features/model/model-copy'
 import { installExternalControls } from './core/external-controls'
@@ -20,6 +22,7 @@ import { pageOwner, subscribePageOwner } from './shared/visual-owner'
 import type { PageOwner } from './shared/visual-owner'
 import { loadFeatureChunk } from './core/chunks'
 import { handleName, setFeatureRegistry } from './core/feature'
+import { switchedOff } from './core/switches'
 import type { Feature, FeatureInstall } from './core/feature'
 import { FEATURES } from 'virtual:dsh-claude-style/features'
 import { BUILD_ID } from 'virtual:dsh-claude-style/generated'
@@ -46,10 +49,15 @@ parkForeignSheets()
 const isLive = (feature: Feature) => feature.pref !== undefined || feature.yieldsTo !== undefined
 
 /**
- * Whether a live feature is wanted now: its preference is on, and no plugin it
- * yields to is on the page. A boolean switch is on unless stored as `false`;
- * a choice switch runs under the values its manifest names (`prefValues`).
+ * The features a test build switches off by name (docs/DEBUGGING.md, 功能二分):
+ * the testing prelude sets `window.__dshClaudeOff` before boot, so a run can
+ * bisect the page without a rebuild. A page the reader opens never sets it.
  */
+function switchedOffHere(id: string): boolean {
+  return switchedOff(id, (window as unknown as { __dshClaudeOff?: unknown }).__dshClaudeOff)
+}
+
+/** Boolean switches default on; choice switches require a listed value and no yielding peer. */
 function isWanted(feature: Feature) {
   if (feature.pref !== undefined) {
     const value = readPrefs()[feature.pref]
@@ -88,6 +96,8 @@ export function apply(ctx: HostContext) {
   let offOwnerWatch: (() => void) | null = null
   /** Unmounts this generation's stylesheet; set once the sheet is mounted. */
   let stopStylesheet: (() => void) | null = null
+  /** Unmounts the sheet registering the optional webfonts in place; set with that sheet. */
+  let stopWebfonts: (() => void) | null = null
   /** Mirrors the page's visibility onto the document; set with the sheet that reads it. */
   let stopVisibility: (() => void) | null = null
   /** Carries the host's floating layer in a page drawn at a scale; set with the sheet that scales it. */
@@ -143,6 +153,10 @@ export function apply(ctx: HostContext) {
       stopStylesheet()
       stopStylesheet = null
     }
+    if (stopWebfonts !== null) {
+      stopWebfonts()
+      stopWebfonts = null
+    }
     // Last: the part marks name host elements for the sheet, and the features
     // above may have stamped a menu card the pass had marked (D3).
     if (stopParts !== null) {
@@ -172,6 +186,9 @@ export function apply(ctx: HostContext) {
       stopExternalControls()
       stopExternalControls = null
     }
+    // The seats' shared body watch belongs to this generation: a page handed
+    // back keeps no subscription, and a later generation opens its own.
+    closeHostSeats()
     setHostContext(null)
     disposePrefsBinding()
   }
@@ -329,7 +346,7 @@ export function apply(ctx: HostContext) {
   function yieldTo(next: PageOwner) {
     const keep = KEPT_FOR[next]
     for (const feature of FEATURES) {
-      if (!keep.includes(feature.id) || failed.has(feature.id) || installed.some(entry => entry.id === feature.id)) continue
+      if (!keep.includes(feature.id) || switchedOffHere(feature.id) || failed.has(feature.id) || installed.some(entry => entry.id === feature.id)) continue
       installFeature(feature)
     }
     release(keep)
@@ -348,7 +365,7 @@ export function apply(ctx: HostContext) {
    * when its chunk arrives, after this pass and the scheduler (D72).
    */
   function own() {
-    // The value is the build id (scripts/build.mjs): the stylesheet keys on
+    // The value is the build id (scripts/build/build.mjs): the stylesheet keys on
     // the attribute alone, and a live page reads which lib/client.js it runs.
     body.setAttribute('data-dsh-claude-style', BUILD_ID)
     // The handoff marker rides the live stamp: its presence is what lets the
@@ -358,6 +375,9 @@ export function apply(ctx: HostContext) {
     // The sheet carries this package's own tags and is unmounted by
     // release(); the features install onto a page that already wears it.
     if (stopStylesheet === null) stopStylesheet = mountStylesheet()
+    // The faces the reader supplied are declared apart from the sheet, once the
+    // host half says which ones the drop point holds (shared/webfonts.ts).
+    if (stopWebfonts === null) stopWebfonts = installWebfonts()
     // The page's visibility, mirrored for the sheet just mounted and for the
     // clocks in script that stop with it (core/page-visibility.ts).
     if (stopVisibility === null) stopVisibility = installPageVisibility()
@@ -379,7 +399,7 @@ export function apply(ctx: HostContext) {
     // and the host's floating cards are carried under it (engine/src/scaled-layer.ts).
     if (stopScale === null) stopScale = installPageScale()
     for (const feature of FEATURES) {
-      if (failed.has(feature.id) || installed.some(entry => entry.id === feature.id)) continue
+      if (failed.has(feature.id) || switchedOffHere(feature.id) || installed.some(entry => entry.id === feature.id)) continue
       if (isLive(feature)) applySwitch(feature)
       else installFeature(feature)
     }
@@ -394,6 +414,12 @@ export function apply(ctx: HostContext) {
     // skin at all — so if it cannot install, the whole skin rolls back.
     if (installed.some(entry => entry.id === 'scheduler')) return
     if (!install('scheduler', null, () => installScheduler(ctx, ui, handleNames))) teardown()
+    // A stand-in page asks for one scheduler pass by name (docs/DEBUGGING.md):
+    // the smoke prelude sets the marker before the bundle boots, and a page the
+    // reader opens never carries it.
+    if ((window as unknown as { __dshStandIn?: unknown }).__dshStandIn === true) {
+      (window as unknown as { __dshClaudePass?: () => void }).__dshClaudePass = () => { ui.schedule?.() }
+    }
   }
 
   setHostContext(ctx)

@@ -1,8 +1,7 @@
 /**
- * A host seat the skin reads on every pass is found once and kept (D9): the
- * page is queried again only when the kept element leaves, an earlier match
- * arrives, or a missing seat mounts. The number of whole-document queries is
- * the contract here, read at the browser's own query method.
+ * A host seat the skin reads on every pass is found once and kept (D9): the page
+ * is queried again only when the kept element leaves, an earlier match arrives,
+ * or a missing seat mounts. The whole-document query count is the contract here.
  *
  * @capability host-lookup
  * @features engine
@@ -59,6 +58,21 @@ test('a seat the page carries is queried once and then kept', () => {
   expect(find()).toBe(card)
   expect(find()).toBe(card)
   expect(stop().length).toBe(1)
+})
+
+test('a kept seat is reused across unrelated mutation batches', async () => {
+  const card = seat('data-test-stable')
+  document.body.append(card)
+  const stop = countQueries()
+  const find = cacheFirstMatch<HTMLElement>('[data-test-stable]')
+  expect(find()).toBe(card)
+  document.body.append(document.createElement('span'))
+  await settle()
+  expect(find()).toBe(card)
+  document.body.append(document.createElement('span'))
+  await settle()
+  expect(find()).toBe(card)
+  expect(stop()).toEqual(['[data-test-stable]'])
 })
 
 test('a kept match is re-queried once an earlier match arrives', () => {

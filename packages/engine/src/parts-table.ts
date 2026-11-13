@@ -1,7 +1,5 @@
 /**
- * What the tables are built from: the two attributes the marking pass writes,
- * and the anchors three of the host's own menus stand in. They are the skin's, so
- * they arrive with the install (packages/engine/src/parts.ts, D73).
+ * The vocabulary the tables are built from: the two attributes the marking pass writes and the anchors three of the host's menus stand in, handed over at install (packages/engine/src/parts.ts, D73).
  */
 export interface PartsTableVocabulary {
   /** The attribute a marked node carries: the part names it stands for, space-separated. */
@@ -11,26 +9,9 @@ export interface PartsTableVocabulary {
 }
 
 /**
- * The host class names the skin reads, as data (D3): host CSS-module local name
- * → the skin's own part name.
- *
- * The host hashes its class names (`_2H3hWW_root`, `_root_38jqx_3`), so a
- * stylesheet cannot match one whole, and a substring match takes whatever else
- * holds that fragment — `title` also names `titleRow` and `subtitle`, `row`
- * also names `grow` and `arrow`, `rail` also names `trailing`, and another
- * plugin's class name can hold it too. packages/engine/src/parts.ts walks these
- * tables and writes the part names onto the element, so every rule matches
- * one attribute whole.
- *
- * Each entry is one exact local name. A local name that means different things
- * in different places is read in the region it belongs to: the composer's
- * `row` and the sidebar's `title` are their own regions' names.
- *
- * This file is data only, so the build reads it directly (scripts/css.mjs, the
- * part gate) and holds every part a stylesheet reads to the table here. A host
- * rename is one line in this file.
+ * The host class names the skin reads, as data (D3): host CSS-module local name → the skin's own part name. The host hashes its class names, so a stylesheet cannot match one whole and a substring match takes whatever else holds the fragment; packages/engine/src/parts.ts walks these tables and writes the part names onto the element, so every rule matches one attribute whole. This file is data only, so the build reads it directly (scripts/build/css.mjs, the part gate); a host rename is one line here.
  */
-import { COMPOSER_OVERLAY_SELECTOR, CONVERSATION_HEADER_SLOT_SELECTOR, CONVERSATION_SCROLL_SELECTOR, RIGHTBAR_COLUMN_SELECTOR, ROOT_SLOT_SELECTOR, SHIMMER_DECORATION_SELECTOR, SIDEBAR_SLOT_SELECTOR } from '@dsh-claude-style/contracts/dom'
+import { COMPOSER_OVERLAY_SELECTOR, CONVERSATION_HEADER_SLOT_SELECTOR, CONVERSATION_MAIN_SLOT_SELECTOR, CONVERSATION_SCROLL_SELECTOR, RIGHTBAR_COLUMN_SELECTOR, ROOT_SLOT_SELECTOR, SHIMMER_DECORATION_SELECTOR, SIDEBAR_SLOT_SELECTOR } from '@dsh-claude-style/contracts/dom'
 
 /** Host CSS-module local name → the skin's part name. */
 export type PartTable = Record<string, string>
@@ -58,7 +39,10 @@ export const SIDEBAR_PARTS: PartTable = {
   newSessionContent: 'new-session-content',
   newSessionShortcut: 'new-session-shortcut',
   separator: 'key-separator',
+  scrollRegion: 'sidebar-scroll-region',
+  scrollArea: 'sidebar-scroll-area',
   panelList: 'panel-list',
+  panelEntry: 'panel-entry',
   panelRow: 'panel-row',
   panelGlyph: 'panel-glyph',
   regionArea: 'region-area',
@@ -75,6 +59,7 @@ export const SIDEBAR_PARTS: PartTable = {
   groupSection: 'group-section',
   projectRow: 'project-row',
   sessionRow: 'session-row',
+  sessionOverflowButton: 'session-overflow',
   title: 'row-title',
   projectText: 'row-project-text',
   time: 'row-time',
@@ -106,9 +91,8 @@ export const HEADER_PARTS: PartTable = {
   headerActions: 'header-actions',
   headerUtilities: 'header-utilities',
   headerCorner: 'header-corner',
-  // From 0.2.1-rc.3 the host draws the tab row as `tabs` with the tablist in its
-  // own `viewTabs` and the overflow menu beside it; before that `tabs` was the
-  // tablist. The stylesheet holds both shapes to one look.
+  // The host draws the tab row as `tabs`, with the tablist in its own
+  // `viewTabs` and the overflow menu beside it.
   tabs: 'view-tabs',
   viewTabs: 'view-tabs-list',
   viewsMore: 'view-tabs-more',
@@ -117,10 +101,7 @@ export const HEADER_PARTS: PartTable = {
   label: 'header-label',
 }
 
-/**
- * The conversation's scrolling body: the transcript and the composer seat under
- * it, so the composer's own parts are read here too.
- */
+/** The conversation's scrolling body: the transcript and the composer seat under it, so the composer's own parts are read here too. */
 export const CONVERSATION_PARTS: PartTable = {
   viewArea: 'view-area',
   scrollBody: 'scroll-body',
@@ -193,11 +174,7 @@ export const RIGHTBAR_PARTS: PartTable = {
 }
 
 /**
- * The rows of a host menu card. The host portals its menus to `<body>` with no
- * marker of its own, so the region is the skin's own stamp on the card: only
- * the feature that recognises it (features/account, features/hero-menu,
- * features/sidebar-entries) writes one, and the rows are read the moment it
- * lands.
+ * The rows of a host menu card. The host portals its menus to `<body>` with no marker of its own, so the region is the skin's own stamp on the card: only the feature that recognises it (features/account, features/hero-menu, features/sidebar-entries) writes one, and the rows are read the moment it lands.
  */
 export const MENU_PARTS: PartTable = {
   itemWrap: 'menu-item',
@@ -214,15 +191,7 @@ export const MENU_PARTS: PartTable = {
 }
 
 /**
- * Names read on the whole page: the host's own text and badge roles, which its
- * sheets and the skin's both style wherever they stand. Read on `<body>` down,
- * so a heading inside a sidebar panel and one inside the transcript read alike,
- * and a badge inside a dialog reads like one in a chat row.
- *
- * These are the names the skin's typography and badge rules name; several the
- * host declared once and no longer renders (`mono`, `codeBlock`, `tagSystem`,
- * …) stay here, so a rule is exact today and one line restores it if the host
- * brings the name back.
+ * Names read on the whole page: the host's own text and badge roles, which its sheets and the skin's both style wherever they stand. Several the host declared once and no longer renders (`mono`, `codeBlock`, `tagSystem`, …) stay here, so a rule is exact today and one line restores it if the host brings the name back.
  */
 export const PAGE_PARTS: PartTable = {
   // The host renders its markdown renderer's own names wherever a transcript,
@@ -255,6 +224,10 @@ export const PAGE_PARTS: PartTable = {
   // is page-wide.
   navList: 'nav-list',
   mask: 'mask',
+  // The image preview's full-window root (ui-primitives' ImageLightbox): the
+  // dialog the reader faces is the backdrop itself, so this name keeps a
+  // full-window layer out of the dialog card's size cap (theme/chrome.css).
+  backdrop: 'backdrop',
   tagSystem: 'tag-system',
   tagUser: 'tag-user',
   tagContext: 'tag-context',
@@ -277,18 +250,10 @@ export interface PartRegion {
   within: string
   parts: PartTable
   /**
-   * A subtree the region does not read inside: another element of the host's,
-   * mounted in the region's own box. The element carrying the mark keeps its
-   * parts; nothing standing in it does — the composer's overlay seat holds the
-   * host's `@` and `/` menus, whose own `item` and `trailing` are not the
-   * composer's (D3, the same name in two regions).
+   * A subtree the region does not read inside, another element of the host's mounted in the region's box: the element carrying the mark keeps its parts, nothing standing in it does (the composer's overlay seat holds the host's `@` and `/` menus, D3).
    */
   skip?: string
-  /**
-   * Parts read on the anchor's own element children alone — where the host puts
-   * a slot's content. A local name as common as `root` cannot be read anywhere
-   * inside the region: rows and tooltips have a `_root` of their own.
-   */
+  /** Parts read on the anchor's own element children alone, where the host puts a slot's content; a local name as common as `root` cannot be read anywhere deeper. */
   rootParts?: PartTable
 }
 
@@ -307,6 +272,11 @@ export function partRegions(vocabulary: PartsTableVocabulary): PartRegion[] {
     rootParts: { root: 'sidebar-root', collapsed: 'sidebar-collapsed', quietBars: 'sidebar-quiet', fading: 'sidebar-fading' },
     },
     { within: CONVERSATION_HEADER_SLOT_SELECTOR, parts: HEADER_PARTS },
+    // The conversation root's own body box: the header's next sibling, holding the
+    // transcript scroller and the composer seat with the column's width handles
+    // beside them. Its local name is also every transcript row's, and those rows
+    // all stand inside the scroll box, so the region reads nothing under that.
+    { within: CONVERSATION_MAIN_SLOT_SELECTOR, parts: { body: 'conversation-body' }, skip: CONVERSATION_SCROLL_SELECTOR },
     { within: CONVERSATION_SCROLL_SELECTOR, parts: CONVERSATION_PARTS, skip: COMPOSER_OVERLAY_SELECTOR },
     { within: RIGHTBAR_COLUMN_SELECTOR, parts: RIGHTBAR_PARTS },
     { within: `[${vocabulary.regions.account}], [${vocabulary.regions.hero}], [${vocabulary.regions.more}]`, parts: MENU_PARTS },
@@ -325,19 +295,7 @@ export function partNames(vocabulary: PartsTableVocabulary): string[] {
 
 
 /**
- * The structural relations a stylesheet reads as a hold: a rule naming an
- * element because of what its subtree contains (`A:has(B)`) reads
- * `data-dsh-claude-holds` instead, and packages/engine/src/parts.ts keeps that
- * mark current (D9). Each entry answers one question the walk already knows
- * the answer to.
- *
- * `holder` names the element that takes the mark; `*` marks whichever ancestor
- * holds the node, which is what a rule styling an unnamed wrapper needs.
- * `scope` keeps the mark inside one box: nothing at or above the scope is
- * marked. `direct` is the `>` in `:has(> B)`: only the held node's own parent
- * counts. `attributes` are the names whose change can move this mark, so the
- * marking pass watches them; a part-based side needs no attribute because the
- * pass already watches class names.
+ * The structural relations a stylesheet reads as a hold: a rule naming an element because of what its subtree contains (`A:has(B)`) reads `data-dsh-claude-holds` instead, and packages/engine/src/parts.ts keeps that mark current (D9). `holder` names the element that takes the mark (`*` for whichever ancestor holds the node); `scope` keeps the mark inside one box; `direct` is the `>` in `:has(> B)`; `attributes` are the names whose change can move the mark.
  */
 export interface HoldRelation {
   /** The word a stylesheet reads in `[data-dsh-claude-holds~="…"]`. */
@@ -381,6 +339,24 @@ export function holdRelations(vocabulary: PartsTableVocabulary): HoldRelation[] 
     held: '[data-session-stats-details], [data-session-stats-usage]',
     attributes: ['data-session-stats-details', 'data-session-stats-usage'],
   },
+  // features/context-stats/footer-layout.css: the dock's reserved row stands
+  // only for figures that keep their own line under the toolbar; an overlaid
+  // line and a dock with no figures leave it empty.
+  {
+    name: 'footer-below',
+    holder: part('composer-dock'),
+    held: '[data-dsh-claude-footer-line="below"]',
+    direct: true,
+    attributes: ['data-dsh-claude-footer-line'],
+  },
+  // features/composer/responsive.css: a compact row may spend its shortage on
+  // the model label while no foreign right-hand control needs the wrapping path.
+  {
+    name: 'composer-right-filled',
+    holder: '[data-composer-card]',
+    held: '[data-slot="conversation.input.right"] > *',
+    attributes: [],
+  },
   // features/composer/inline-bar.css: the activity seat carries the stop button
   // while a turn runs, and its flex item is out of the flow while it is empty —
   // its gap would otherwise stand between the seat and the docked meter.
@@ -399,10 +375,18 @@ export function holdRelations(vocabulary: PartsTableVocabulary): HoldRelation[] 
     scope: part('foot-area'),
     attributes: ['data-dsh-claude-account-host-row'],
   },
+  // features/account/footer-takeover.css: only the footer's action box that holds a
+  // plugin's block keeps its size; the takeover zeroes it for the entries it
+  // gathers into the account menu.
+  {
+    name: 'footer-block',
+    holder: part('footer-actions'),
+    held: '[data-dsh-claude-footer-block]',
+    attributes: ['data-dsh-claude-footer-block'],
+  },
   // features/account/footer-takeover.css: the host mounts its own account menu on
-  // <body>, outside the sidebar, so the collapsed rail's card width cannot be
-  // read from a sidebar ancestor. The body takes the mark, and the frame's own
-  // collapse attribute is the fact it is read from.
+  // <body>, outside the sidebar, so the collapsed rail's card width cannot be read
+  // from a sidebar ancestor; the body takes the mark from the frame's own attribute.
   {
     name: 'sidebar-rail',
     holder: 'body',
@@ -411,8 +395,8 @@ export function holdRelations(vocabulary: PartsTableVocabulary): HoldRelation[] 
   },
   // features/search/search.css: the wrapper the host's rail puts around its own
   // search button carries no part of its own, and the skin's box takes that seat
-  // in the collapsed rail — so the wrapper is the node that stands down, and the
-  // button it holds is the node the pass knows.
+  // in the collapsed rail — so the wrapper stands down, and its button is the node
+  // the pass knows.
   {
     name: 'rail-search',
     holder: '*',
@@ -430,6 +414,17 @@ export function holdRelations(vocabulary: PartsTableVocabulary): HoldRelation[] 
     held: '[data-turn-process-hidden], [hidden]',
     scope: '[data-chat-flow]',
     attributes: ['data-turn-process-hidden', 'hidden'],
+  },
+  // features/row-skip/row-skip.css: the host draws a non-portal tooltip beside its anchor as a
+  // fixed bubble inside the row, and a skipped row is the bubble's containing block and its
+  // crop. The row keeps its layout while one stands under it; the bubble only exists while its
+  // anchor is hovered, so the row is on screen and the skip saves nothing there.
+  {
+    name: 'tooltip-row',
+    holder: '[data-chat-flow-kind]',
+    held: '[role="tooltip"]',
+    scope: '[data-chat-flow]',
+    attributes: ['role'],
   },
   // features/process-column/process-column.css: a row's title steps aside only
   // where a description follows it; the host writes the decorative separator

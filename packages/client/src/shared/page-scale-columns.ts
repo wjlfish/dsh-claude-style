@@ -1,30 +1,9 @@
-/**
- * The host frame's three columns, in the pixels the page's own styles read
- * (D43, D81).
- *
- * The host measures its frame with `getBoundingClientRect()` — the window's
- * pixels — and writes the three columns from that measurement into an inline
- * `grid-template-columns`, which the page's scale reads again: every column is
- * drawn at the scale, a sidebar dragged to 280 stands 350 wide, and the columns
- * add up to a factor past the window; a column narrowed to the window's own
- * width stands a factor wider than it and the sidebar it starts is cut off at
- * the page's left edge. Dividing each written length by the scale once draws the
- * frame at the width it was measured at.
- *
- * The sidebar's width is written twice more, from the same number: as the
- * sidebar's own box width, and as its drag handle's `left`. Both are divided
- * with the column, or the sidebar's content stands wider than the column that
- * clips it and the handle leaves the column's edge.
- *
- * A written list holding anything but a length is left alone: `1fr`, `minmax`
- * and `fit-content` are resolved against the track the page gives them, and only
- * a length the host measured doubles. A zero track needs no such guard: it
- * stands at zero on both sides of the division, and the `1fr` beside it takes
- * the rest of the page's own width.
+/** Host pixel lengths must be divided by page scale once, including sidebar width and handle offset (D43, D81).
+ * Tracks containing `fr` or keywords stay under CSS sizing; only measured pixel lengths are converted.
  */
 import { observeMatches, subscribeMutations } from '@dsh-claude-style/engine/bus'
 import { cacheFirstMatch } from '@dsh-claude-style/engine/host'
-import { ROOT_SLOT_SELECTOR, SIDEBAR_HANDLE_SELECTOR, SIDEBAR_ROOT_SELECTOR } from '@dsh-claude-style/contracts/dom'
+import { ROOT_SLOT_SELECTOR, SIDEBAR_DRAWER_ATTRIBUTE, SIDEBAR_HANDLE_SELECTOR, SIDEBAR_ROOT_SELECTOR } from '@dsh-claude-style/contracts/dom'
 import { subscribePrefs } from '../core/prefs'
 
 /** One length in the host's written column list, and the bracket group a length
@@ -66,14 +45,7 @@ function tracks(written: string) {
   return parts
 }
 
-/**
- * The host's own column list, in the page's pixels.
- *
- * @param written - the value the host wrote into `grid-template-columns`.
- * @param scale - the scale the page is drawn at.
- * @returns the list to write instead, or null when the page is at its own scale,
- *     or the list holds a track the page resolves itself (`1fr`, a keyword).
- */
+/** Null preserves CSS-resolved tracks and the unscaled page. */
 export function inPageColumns(written: string, scale: number) {
   if (!(scale > 0) || scale === 1 || written.trim() === '') return null
   const inPage: string[] = []
@@ -130,16 +102,7 @@ interface Carry {
  */
 export const FRAME_SELECTOR = '[data-dsh-claude-part~="layout-frame"]'
 
-/**
- * What each box's last carry left, kept on the box itself.
- *
- * The skin's rules can stand on the page twice — a hot reload mounts the new
- * module before the old one is torn down — and a record kept in the module would
- * be one per copy: the copy that was not the writer reads the other's number as
- * the host's measurement, and divides it again on every pass until almost
- * nothing is left. The box is what both copies share, so the record is kept
- * there, under a name no host and no stylesheet writes.
- */
+/** Keep carry state on the element so overlapping hot-reload generations never divide a converted value again. */
 const CARRY_ATTRIBUTE = 'data-dsh-claude-frame-columns'
 
 function seenOn(box: HTMLElement): Carry | null {
@@ -170,6 +133,18 @@ export function installFrameColumns(vocabulary: FrameColumnsVocabulary) {
     const { property } = declaration
     const value = box.style.getPropertyValue(property)
     const seen = seenOn(box)
+    // A frame drawing the sidebar as a drawer is outside the three-track grid
+    // this rule converts: the sidebar's column is lifted out of the flow and
+    // placed over the page, so the tracks no longer describe the page the
+    // reader sees. The host's own declaration stands there, and a carried
+    // number is handed back rather than divided again.
+    if (declaration === FRAME_COLUMNS && box.hasAttribute(SIDEBAR_DRAWER_ATTRIBUTE)) {
+      if (seen !== null) {
+        forgetOn(box)
+        box.style.setProperty(property, seen.from)
+      }
+      return
+    }
     if (value === '') {
       // The host took its declaration away — the sidebar drops its width once it
       // is collapsed — so the next number it writes is a fresh one, even when it
@@ -240,7 +215,11 @@ export function installFrameColumns(vocabulary: FrameColumnsVocabulary) {
     for (const [box, declaration] of standing()) {
       present.add(box)
       if (!heard.has(box)) {
-        heard.set(box, { declaration, off: subscribeMutations(box, { attributes: true, attributeFilter: ['style'] }, () => carry(box, declaration)) })
+        // The host's next grid/frame paint reads this declaration. A heavy
+        // batch must not leave the unscaled value standing until a later task.
+        // The drawer mark arrives on the frame itself, and it decides whether the
+        // three tracks this rule converts are still the page's own geometry.
+        heard.set(box, { declaration, off: subscribeMutations(box, { attributes: true, attributeFilter: ['style', SIDEBAR_DRAWER_ATTRIBUTE], beforePaint: true }, () => carry(box, declaration)) })
       }
       carry(box, declaration)
     }

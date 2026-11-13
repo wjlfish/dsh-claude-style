@@ -1,4 +1,6 @@
 import { requestFrame } from '@dsh-claude-style/engine/frame'
+import { observeMatches } from '@dsh-claude-style/engine/bus'
+import { MENU_ROLE_SELECTOR } from '@dsh-claude-style/contracts/dom'
 import { ACCOUNT_MENU_ATTR, ACCOUNT_READY_ATTR } from '../../constants'
 import { createStamp } from '@dsh-claude-style/engine/dom'
 
@@ -8,7 +10,7 @@ export type AccountSurfaceMode = 'host' | 'synthetic'
 /**
  * The account surface: one row model, two mount points.
  *
- * A host with an account area (Desktop 0.1.7+) owns the entry — its own
+ * A host with an account area (Desktop) owns the entry — its own
  * account row, restyled by the stylesheet, opens its own account menu. The
  * host renders that menu's list itself and unmounts it on close, so this
  * surface re-identifies the list every pass and injects our container at its
@@ -36,6 +38,13 @@ export function createAccountSurface(options: {
   let hostContainer: HTMLElement | null = null
   /** The open account menu, marked for the stylesheet. */
   const menuStamp = createStamp(ACCOUNT_MENU_ATTR)
+
+  // A menu portal arriving is earlier than the row injection. The expanded
+  // account trigger identifies it here, before the reveal wait starts.
+  const openMenus = observeMatches<HTMLElement>(MENU_ROLE_SELECTOR, () => {
+    const menu = options.findMenu()
+    if (menu !== null) markMenu(menu)
+  })
 
   function detect(): AccountSurfaceMode {
     return options.hostTrigger() !== null ? 'host' : 'synthetic'
@@ -129,6 +138,7 @@ export function createAccountSurface(options: {
     mode() { return mode },
     container,
     clearMenu() { markMenu(null) },
+    dispose() { openMenus.release() },
     sync
   }
 }

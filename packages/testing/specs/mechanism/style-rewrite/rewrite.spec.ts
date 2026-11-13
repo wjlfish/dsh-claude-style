@@ -1,19 +1,16 @@
 /**
  * The sodium rewrite's mechanism (D78): a rule is rewritten where it stands and
- * written back exactly; a selector the sheet refuses is an error that leaves the
- * sheet as its owner wrote it; a rule another writer changed since is left to
- * that writer and handed back; the flow-child mark stands on every child of the
- * flow's containers through every change; and the table's rewrite of the host's
- * flow rules selects the same elements as the rules themselves, at the same
- * specificity, as the browser's own cascade judges it — an item filled or
- * emptied included, in the very task that changed it.
+ * written back exactly; a selector the sheet refuses leaves the sheet as its
+ * owner wrote it; a rule another writer changed is handed back; the flow-child
+ * mark stands on every child through every change; and the table's flow rewrite
+ * selects the same elements at the same specificity as the host's own rules.
  *
  * @capability style-rewrite
  * @features engine, sodium
  * @risk With the switch on, a flow item that should collapse keeps its height or its gap, a filled one stays collapsed while the host reads the layout and the conversation's position slides back, the running line's divider shows at the wrong moment, or a rule loses to one it used to beat.
  */
 import { afterEach, expect, test } from 'vitest'
-import { CHAT_FLOW_SLOT_SELECTOR, CHAT_GROUP_PART_ATTRIBUTE, CHAT_GROUP_PART_RESPONSE, CHAT_NODE_SELECTOR, CHAT_RUNNING_SELECTOR, CHAT_STEERING_BATCH_SELECTOR, FLOW_BLOCK_SELECTOR, FLOW_KIND_ATTRIBUTE, PENDING_STEERING_SELECTOR, SUBMISSION_ECHO_SELECTOR, TURN_PROCESS_ANSWER_ATTRIBUTE, TURN_PROCESS_ROW_KIND } from '@dsh-claude-style/contracts/dom'
+import { CHAT_FLOW_SLOT_SELECTOR, CHAT_GROUP_PART_ATTRIBUTE, CHAT_GROUP_PART_RESPONSE, CHAT_NODE_SELECTOR, CHAT_RUNNING_SELECTOR, CHAT_STEERING_BATCH_SELECTOR, FLOW_BLOCK_SELECTOR, FLOW_KIND_ATTRIBUTE, PENDING_STEERING_SELECTOR, SUBMISSION_ECHO_SELECTOR, TURN_PROCESS_ROW_KIND } from '@dsh-claude-style/contracts/dom'
 import { applyRewrite, planRewrite, restoreRewrite } from '@dsh-claude-style/engine/sheet-rewrite'
 import { SODIUM_MEMBERS, keepFlowChildMark } from '@dsh-claude-style/client/pure'
 import { hostElement } from '../../fixtures/host-markup'
@@ -85,12 +82,10 @@ function steeringItem() {
 }
 
 /**
- * A chat column after older turns, its flow slot holding every kind of child
- * the host's rules tell apart and ending on the running line, and beside it a
- * process group's own list of items, which none of the flow rules spaces.
- *
- * The column holds the host's text-interaction surface as well: it stands in
- * the column beside the flow, and the column's own gap rule leaves it out.
+ * A chat column after older turns, its flow slot holding every kind of child the
+ * host's rules tell apart and ending on the running line, beside a process
+ * group's own item list that none of the flow rules spaces. The column holds the
+ * host's text-interaction surface too, and the column's gap rule leaves it out.
  */
 function conversation() {
   const column = document.createElement('div')
@@ -107,7 +102,7 @@ function conversation() {
     item('text', { [CHAT_GROUP_PART_ATTRIBUTE]: CHAT_GROUP_PART_RESPONSE }),
     item('node'),
     item('node', { [FLOW_KIND_ATTRIBUTE]: TURN_PROCESS_ROW_KIND }),
-    item('node', { [FLOW_KIND_ATTRIBUTE]: 'assistant-step', [TURN_PROCESS_ANSWER_ATTRIBUTE]: '' }),
+    item('node', { [FLOW_KIND_ATTRIBUTE]: 'assistant-step' }),
     steeringItem(),
     item('node', { hidden: '' }),
     bubble(SUBMISSION_ECHO_SELECTOR),
@@ -189,11 +184,7 @@ test('stopping the keeper takes the mark off', () => {
 
 /**
  * The host chat module's flow rules as its sheet writes them, with the stand-in
- * classes. The host has shipped them in two shapes: the older one names the
- * older turn's seat with `:has(> .older)`, leaves the text-interaction surface
- * and the steering batches out of nothing, and names the process group's answer
- * by a mark of the host's own; the newer one is the shape the host writes
- * today.
+ * classes.
  */
 const VISIBLE = `:not([hidden]):not(${EMPTY})`
 /** The visible item as the column's rule names it: the surface stands out of it. */
@@ -202,26 +193,19 @@ const NOT_RUNNING = `:not(.${RUNNING})`
 const NOT_BATCH = `:not(:has(> ${CHAT_NODE_SELECTOR} > ${CHAT_STEERING_BATCH_SELECTOR}))`
 const NOT_OPENING = `:not(${SUBMISSION_ECHO_SELECTOR}, ${PENDING_STEERING_SELECTOR})`
 const SCOPE = `:is(.${COLUMN}, ${CHAT_FLOW_SLOT_SELECTOR})`
-/** The rules as the host writes them today, from 0.2.2-alpha.3 on. */
+/** The rules as the host writes them. */
 const HOST_RULES = [
   `${SCOPE} > ${SURFACE_VISIBLE} ~ ${SURFACE_VISIBLE}, .${COLUMN} > .${OLDER} + ${CHAT_FLOW_SLOT_SELECTOR} > ${SURFACE_VISIBLE} { margin-top: var(--gap, 6px) }`,
   `.${ITEM}[${CHAT_GROUP_PART_ATTRIBUTE}="${CHAT_GROUP_PART_RESPONSE}"], ${SCOPE} > [${CHAT_GROUP_PART_ATTRIBUTE}="${CHAT_GROUP_PART_RESPONSE}"]:not([hidden]):not(:empty) + ${VISIBLE}${NOT_RUNNING}${NOT_BATCH} { --gap: 12px }`,
   `.${ITEM}[${FLOW_KIND_ATTRIBUTE}="${TURN_PROCESS_ROW_KIND}"], ${SCOPE} > [${FLOW_KIND_ATTRIBUTE}="${TURN_PROCESS_ROW_KIND}"]:not(:empty, :has(> ${CHAT_NODE_SELECTOR}:empty)) + ${VISIBLE}${NOT_RUNNING}${NOT_BATCH}, ${SCOPE} > [${FLOW_KIND_ATTRIBUTE}="${TURN_PROCESS_ROW_KIND}"] + ${VISIBLE}${NOT_RUNNING}${NOT_OPENING}${NOT_BATCH} { --gap: 16px }`,
   `${EMPTY} { height: 0px }`,
 ]
-/** The rules as the host wrote them up to 0.2.1-rc.5. */
-const HOST_RULES_OLD = [
-  `${SCOPE} > ${VISIBLE} ~ ${VISIBLE}, .${COLUMN}:has(> .${OLDER}) > ${CHAT_FLOW_SLOT_SELECTOR} > ${VISIBLE} { margin-top: var(--gap, 6px) }`,
-  `.${ITEM}[${CHAT_GROUP_PART_ATTRIBUTE}="${CHAT_GROUP_PART_RESPONSE}"], ${SCOPE} > [${CHAT_GROUP_PART_ATTRIBUTE}="${CHAT_GROUP_PART_RESPONSE}"]:not([hidden]):not(:empty) + ${VISIBLE}${NOT_RUNNING} { --gap: 12px }`,
-  `.${ITEM}[${FLOW_KIND_ATTRIBUTE}="${TURN_PROCESS_ROW_KIND}"], .${ITEM}[${TURN_PROCESS_ANSWER_ATTRIBUTE}], ${SCOPE} > [${FLOW_KIND_ATTRIBUTE}="${TURN_PROCESS_ROW_KIND}"] + ${VISIBLE}${NOT_RUNNING} { --gap: 16px }`,
-  `${EMPTY} { height: 0px }`,
-]
 /** The host rules whose subject is the visible item, the compound the browser cannot bucket: the ones the table spreads. */
 const SPREAD = HOST_RULES.filter(rule => rule.includes(VISIBLE) || rule.includes(SURFACE_VISIBLE))
 
 /**
- * The table's chat flow entry, rewriting and keeping the mark on a sheet
- * holding the host rules.
+ * The table's chat flow entry, rewriting and keeping the mark on a sheet holding
+ * the host rules.
  *
  * @param rules - the host's rules, in the shape the sheet carries.
  */
@@ -251,23 +235,12 @@ test('the table rewrites every host gap rule to select the same elements, and le
   }
 })
 
-test('the shape the host shipped its rules in before 0.2.2-alpha.3 is rewritten as well', () => {
-  conversation()
-  const rewritten = rewriteHostRules(HOST_RULES_OLD)
-  expect(rewritten.length).toBe(HOST_RULES_OLD.filter(rule => rule.includes(VISIBLE)).length)
-  for (const { original, rewritten: now } of selections(rewritten)) {
-    expect(original.length).toBeGreaterThan(0)
-    expect(now).toEqual(original)
-  }
-})
-
 test('a turn ending in one task is read by the rewritten rules as the host rules read it, before any observer runs', () => {
   const { slot } = conversation()
   const rewritten = rewriteHostRules()
   const [, empty, emptyNode, , full] = [...slot.children]
-  // The host fills and empties items, takes the running line down and puts
-  // the turn's last rows in, then reads the layout, all in one task: the
-  // rewritten rules have to agree at that moment.
+  // The host fills and empties items, takes the running line down and puts the
+  // turn's last rows in, then reads the layout, all in one task.
   empty.append('arrived')
   emptyNode.firstElementChild!.append('streamed')
   full.firstElementChild!.replaceChildren()

@@ -23,11 +23,13 @@
   }
   /**
    * Record `read()` on every frame from now until the page has settled, and
-   * answer the readings with the settled one last (D77: the settle rule). The
-   * page has settled when its finite animations have landed and the skin has
-   * asked for no pass for eight frames' worth of a 60 Hz display (134 ms, over
-   * at least two frames, so a slower display waits the same wall clock). A clock
-   * of the page's own — the waiting line ticks four times a second while a turn
+   * answer the readings with the settled one last (D92: the settle rule). The
+   * page has settled when its finite animations have landed and the skin's
+   * scheduler has run no pass for eight frames' worth of a 60 Hz display
+   * (134 ms, over at least two frames, so a slower display waits the same wall
+   * clock); a feature that paints its own frames asks the page for them without
+   * asking the scheduler for a pass, so it does not hold the rule. A clock of
+   * the page's own — the waiting line ticks four times a second while a turn
    * runs — is its life, the way an endless animation is, so a quiet run between
    * two ticks counts. `quietMs` adds a stretch of wall clock with no pass at
    * all, for a reading that counts passes itself. A page that never settles
@@ -40,9 +42,9 @@
     var started = performance.now()
     for (;;) {
       if (read !== undefined) readings.push(read())
-      var before = window.__passes
+      var before = window.__dshClaudePasses
       await frame()
-      if (window.__passes === before) quietFrames += 1
+      if (window.__dshClaudePasses === before) quietFrames += 1
       else {
         quietFrames = 0
         lastPass = performance.now()
@@ -73,6 +75,23 @@
       await frame()
     }
   }
+  /**
+   * Wait for one scheduler pass after this call. A step that changes the page
+   * and reads a mark the next pass writes waits on the page's own pass count,
+   * not on a duration: a busy display only pushes that pass later (D92).
+   */
+  async function nextPass(what) {
+    var from = window.__dshClaudePasses
+    await until(function () { return window.__dshClaudePasses },
+      function (counts) { return counts[counts.length - 1] > from },
+      what === undefined ? 'the scheduler to pass over the change' : what)
+  }
+  /** A skin name the page renders, read from the surface table by id (packages/testing/data/surface.json). */
+  function surface(id) {
+    var entry = window.SMOKE_SURFACE.find(function (item) { return item.id === id })
+    if (entry === undefined) throw new Error('smoke: unknown surface ' + id)
+    return entry.selector || entry.attribute
+  }
   function attrs(el) { return el ? Array.prototype.map.call(el.attributes, function (a) { return a.name }) : null }
   // A segmented control's sliding pill (packages/client/src/shared/sliding-pill.ts) against
   // the item it should sit under: its mark, its written placement, the item's
@@ -95,14 +114,42 @@
     }
   }
 
+  /**
+   * Run `change` and answer the pill's state at the moment its slide starts.
+   *
+   * The placement is written in a pass, so the control's style mutation is the
+   * first moment the new position and its transition are both in the page —
+   * even when the next frame is far away. The observer is dropped on a timeout
+   * as well.
+   */
+  async function pillSlide(control, item, change, what) {
+    var switchedAt = null
+    var observer = new MutationObserver(function () {
+      var state = pillState(control, item)
+      if (state.slides.length > 0) switchedAt = state
+    })
+    observer.observe(control, { attributes: true, attributeFilter: ['style'] })
+    try {
+      change()
+      var readings = await until(function () { return switchedAt },
+        function (read) { return read[read.length - 1] !== null }, what)
+      return readings[readings.length - 1]
+    } finally {
+      observer.disconnect()
+    }
+  }
+
   var probe = {
     sleep: sleep,
     frame: frame,
     watch: watch,
     settle: settle,
     until: until,
+    nextPass: nextPass,
+    surface: surface,
     attrs: attrs,
     pillState: pillState,
+    pillSlide: pillSlide,
     report: { applyError: window.__applyError, teardownRegistered: typeof window.__dispose === 'function' },
     steps: [],
     // The view-tab strip and the search root the shell cases build, and the

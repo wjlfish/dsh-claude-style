@@ -1,15 +1,15 @@
 import { CHAT_FOLLOW_ATTR, FOLLOW_HOLD_ATTR, READER_HOLD_ATTR } from '../../constants'
-import { observeMatches, observeSize, subscribeMutations } from '@dsh-claude-style/engine/bus'
+import { observeMarker, observeMatches, observeSize, subscribeMutations } from '@dsh-claude-style/engine/bus'
 import { requestFrame } from '@dsh-claude-style/engine/frame'
 import { motionReduced } from '../../core/prefs'
 import { createChatProcessFollow } from './process-follow'
-import { CHAT_CALL_SELECTOR, CHAT_RUNNING_SELECTOR, CONVERSATION_SCROLL_SELECTOR, FLOW_BLOCK_SELECTOR, FOLLOWING_TAIL_ATTRIBUTE, FOLLOWING_TAIL_SELECTOR, ROW_PHASE_ATTRIBUTE, RUNNING_STATE, SHIMMER_SELECTOR, STREAMING_SELECTOR, THINK_ROW_SELECTOR } from '@dsh-claude-style/contracts/dom'
+import { CHAT_CALL_SELECTOR, CHAT_RUNNING_SELECTOR, CONVERSATION_SCROLL_SELECTOR, DISCLOSURE_HEADER_SELECTOR, DISCLOSURE_ROW_SELECTOR, EXPANDED_ATTRIBUTE, FLOW_BLOCK_SELECTOR, FOLLOWING_TAIL_ATTRIBUTE, FOLLOWING_TAIL_SELECTOR, FOLLOW_THRESHOLD_PX, PROCESS_BODY_SELECTOR, PROCESS_EXPANDED_MODE_ATTRIBUTE, ROW_PHASE_ATTRIBUTE, RUNNING_STATE, SHIMMER_SELECTOR, STREAMING_SELECTOR, THINK_ROW_SELECTOR } from '@dsh-claude-style/contracts/dom'
 import { conversationColumn, conversationScroller, findFollowTailButton } from '@dsh-claude-style/engine/chat-dom'
 import { createStamp } from '@dsh-claude-style/engine/dom'
 import { motionEase, motionEaseAt, motionMs } from '../../shared/motion'
 import { inPageBox, pageViewport } from '../../shared/page-zoom'
 import { observeComposerCards } from '@dsh-claude-style/engine/host'
-import { SCROLL_EASE_LEAD_PX, handBackFollow, joinScrollOwner, readerHolds, submissionHolds } from '@dsh-claude-style/engine/scroll-owner'
+import { SCROLL_EASE_LEAD_PX, handBackFollow, joinScrollOwner, readerHolds, readerScrollPosition, submissionHolds, writeScroll } from '@dsh-claude-style/engine/scroll-owner'
 import type { HostContext } from '@dsh-claude-style/engine/host'
 import type { FeatureUi } from '../../core/feature'
 import type manifest from './chat-follow.manifest'
@@ -71,33 +71,57 @@ function conversationComposerCard(cards: readonly HTMLElement[]) {
   return found
 }
 
+/** Where the host's back-to-end button stands this frame, as a frame's read phase found it. */
+interface FollowTailPlacement {
+  button: HTMLElement
+  left: string
+  bottom: string
+}
+
 /**
  * The host's back-to-end button, centred over the composer.
  *
  * The button is the host's own and renders only while its follow is off; its
  * shipped place is the conversation column's right edge, which is where the
- * mascot stands on the card. The pass marks it and writes the two numbers its
- * stylesheet reads — the column's centre and the composer's top edge — because
- * the button is fixed and the column moves with the sidebars and the window.
+ * mascot stands on the card. The two numbers its stylesheet reads — the
+ * column's centre and the composer's top edge — belong to the frame's read
+ * phase (D40): the button is fixed and the column moves with the sidebars and
+ * the window, so every pass places it again.
  *
- * @param stamp - the mark to move onto the button, or off when it is not there.
+ * @param cards - the composer cards, kept current by the bus (D40).
+ * @returns null while the button, the card or the scroller is not there.
  */
-function placeFollowTail(stamp: ReturnType<typeof createStamp<HTMLElement>>, cards: readonly HTMLElement[]) {
+function readFollowTail(cards: readonly HTMLElement[]): FollowTailPlacement | null {
   const button = findFollowTailButton()
-  const card = button === null ? null : conversationComposerCard(cards)
-  const scroller = button === null ? null : conversationScroller()
-  if (button === null || card === null || scroller === null) {
-    stamp.release()
-    return
-  }
-  stamp.mark(button)
+  if (button === null) return null
+  const card = conversationComposerCard(cards)
+  const scroller = conversationScroller()
+  if (card === null || scroller === null) return null
   // The boxes are measured in the viewport's pixels and the two properties are
   // read in the page's own, which the reader's page zoom scales
   // (shared/page-zoom.ts).
   const cardBox = inPageBox(card.getBoundingClientRect())
   const scrollBox = inPageBox(scroller.getBoundingClientRect())
-  const left = `${Math.round(scrollBox.left + scrollBox.width / 2)}px`
-  const bottom = `${Math.round(pageViewport().height - cardBox.top + FOLLOW_TAIL_AIR_PX)}px`
+  return {
+    button,
+    left: `${Math.round(scrollBox.left + scrollBox.width / 2)}px`,
+    bottom: `${Math.round(pageViewport().height - cardBox.top + FOLLOW_TAIL_AIR_PX)}px`,
+  }
+}
+
+/**
+ * Put the button where a read phase measured it; the frame's write phase's half.
+ *
+ * @param stamp - the mark to move onto the button, or off when it is not there.
+ * @param placement - what the frame measured, or null when the button is absent.
+ */
+function writeFollowTail(stamp: ReturnType<typeof createStamp<HTMLElement>>, placement: FollowTailPlacement | null) {
+  if (placement === null) {
+    stamp.release()
+    return
+  }
+  const { button, left, bottom } = placement
+  stamp.mark(button)
   if (button.style.getPropertyValue(FOLLOW_TAIL_LEFT) !== left) button.style.setProperty(FOLLOW_TAIL_LEFT, left)
   if (button.style.getPropertyValue(FOLLOW_TAIL_BOTTOM) !== bottom) button.style.setProperty(FOLLOW_TAIL_BOTTOM, bottom)
 }
@@ -105,7 +129,7 @@ function placeFollowTail(stamp: ReturnType<typeof createStamp<HTMLElement>>, car
 /**
  * Watch the whole page for the moments that lose the host's follow, and hand
  * the position back at each of them; while content streams, slide what the
- * host's pin pushed up instead of letting it jump in one frame (D71). Every
+ * host's pin pushed up instead of letting it jump in one frame (D85). Every
  * position write goes through the scroll owner (D40).
  *
  * @param options.foldBusy - whether a fold glide is animating a height right now.
@@ -145,7 +169,7 @@ export function createChatFollowGuard(options: { foldBusy: () => boolean, submis
    */
   const running = () => streaming() || performance.now() - lastActivityAt <= FOLLOW_ACTIVITY_GRACE_MS
 
-  // ---------- the stream slide (D71) ----------
+  // ---------- the stream slide (D85) ----------
   //
   // While work is streaming and the reader is at the end, the host follows by
   // writing the end outright the moment content grows, so the text above the
@@ -159,32 +183,43 @@ export function createChatFollowGuard(options: { foldBusy: () => boolean, submis
   let stopSlideSize: (() => void) | null = null
   /** The column's height as the slide last saw it; the growth a frame is measured against. */
   let slideHeight = 0
-  /** The scroller's own height as its size subscription last reported it. */
-  let scrollerHeight = 0
-  /** The slide running now: the column's, the pinned row's counter-slide, the distance both started from, and the glide they run on. */
-  let slide: { column: Animation, row: Animation | null, from: number, duration: number } | null = null
+  /** The scroller position after the previous resize batch; null until the first report. */
+  let slideScrollTop: number | null = null
+  /** Whether the current conversation column has ever stood at or followed the tail. */
+  let seenAtTail = false
+  /** The slide running now: the column's, the counter-slides on stuck chrome, the distance they started from, and their duration. */
+  let slide: { column: Animation, counters: Animation[], from: number, duration: number } | null = null
   /** The column the hold mark (FOLLOW_HOLD_ATTR) is on, or null while no door holds it. */
   let heldColumn: HTMLElement | null = null
   /** Whether the size subscription's first report for the current column has been taken as its baseline. */
   let slideArmed = false
+  /** When the last growth arrived, and the smoothed gap before it: the pace a slide is timed to (D95). */
+  let grewAt = 0
+  let grewEvery = 0
   /**
-   * The live turn's own row, kept current by the bus (D40): the stream slide
-   * counter-slides it so it stands while the column glides. The host draws the
-   * row at the flow's end and appends a hidden interaction surface after it
-   * (0.2.2-alpha.3), so the column's last child is no longer the row itself and
-   * the bus's list is where the row is read from.
+   * The live turn's own row and thinking rows, kept current by the bus (D40):
+   * the stream slide counter-slides both the bottom waiting row and any top-stuck
+   * expanded thinking header so neither jumps while the column glides (D95).
    */
   const runningRows = observeMatches<HTMLElement>(CHAT_RUNNING_SELECTOR)
+  const thinkRows = observeMatches<HTMLElement>(THINK_ROW_SELECTOR)
 
   /**
    * Whether content is arriving right now: the mark the host writes while it
-   * streams. It is looked for inside the message column rather than across the
-   * document — the mark lives there, and a document query made after the host's
-   * own write forces a style pass over the whole page (D9).
+   * streams. It rides the newest block — the answer the flow is writing — so
+   * the query starts from the end of the column; a mark standing anywhere else
+   * is read off the bus's registry, which hears the attribute arrive, so the
+   * transcript is never walked for it.
    */
+  const runningMarks = observeMarker<HTMLElement>(FOLLOW_RUNNING_SELECTOR)
   const streaming = () => {
     const column = conversationColumn()
-    return column !== null && column.querySelector(FOLLOW_RUNNING_SELECTOR) !== null
+    if (column === null) return false
+    let block = column.lastElementChild
+    for (let at = 0; at < 3 && block !== null; at += 1, block = block.previousElementSibling) {
+      if (block.querySelector(FOLLOW_RUNNING_SELECTOR) !== null) return true
+    }
+    return runningMarks.all().some((mark) => column.contains(mark))
   }
 
   /**
@@ -208,12 +243,21 @@ export function createChatFollowGuard(options: { foldBusy: () => boolean, submis
     return column.closest(FOLLOWING_TAIL_SELECTOR) !== null
   }
 
-  /** End the running slide where it is: the column and its pinned row land at rest together. */
+  /** End the running slide where it is: the column and its counter-slid elements land at rest together. */
   const stopSlide = () => {
     if (slide === null) return
     slide.column.cancel()
-    if (slide.row !== null) slide.row.cancel()
+    for (const counter of slide.counters) counter.cancel()
     slide = null
+  }
+
+  /** Whether the conversation scroller currently stands at or follows its tail. */
+  const noteTailIfNear = (scroller: Element | null) => {
+    if (seenAtTail || scroller === null) return
+    if (scroller.querySelector(FOLLOWING_TAIL_SELECTOR) !== null
+      || scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= FOLLOW_THRESHOLD_PX) {
+      seenAtTail = true
+    }
   }
 
   /** The distance the running slide still carries, off its own clock and curve: no style is read. */
@@ -229,33 +273,78 @@ export function createChatFollowGuard(options: { foldBusy: () => boolean, submis
     if (linear >= 1) return 0
     // The curve the animation paints with, not the linear share of its
     // duration: with the two mixed up, every restart re-inflates the distance
-    // the frame before it had already travelled (D71).
+    // the frame before it had already travelled (D85).
     return slide.from * (1 - motionEaseAt(GLIDE_TOKEN, linear))
+  }
+
+  /**
+   * How long this slide may run (D85). A piece of an answer arriving at a
+   * provider's pace lands well inside the slide token, and a slide still moving
+   * when the next piece lands starts its restart from a distance it had not paid
+   * back yet: the column is drawn further below the tail with every piece until
+   * it stands at the longest stretch a slide carries. The gap the last two
+   * pieces kept is the time this one has before the next, so the slide is timed
+   * to that; the token stays the ceiling for an answer slow enough for the
+   * glide to settle between pieces.
+   */
+  const slideDuration = () => {
+    const longest = motionMs('--dsh-claude-duration-slide')
+    if (grewEvery === 0) return longest
+    return Math.min(longest, Math.max(grewEvery, 1))
   }
 
   /**
    * Put the column back down by this frame's growth and slide it to rest.
    *
    * One replace-mode animation at a time: an additive one stays off the
-   * compositor (D71), so a new growth restarts from the distance still
-   * carried — up to the longest stretch a slide carries, so a burst is glided
-   * as far as that and no farther. The live turn's row is pinned to the
-   * scroller's bottom (chat-wait.css) and would ride the column's offset, so it
-   * gets the same slide reversed, started in the same frame: the two cancel and
-   * it stands.
+   * compositor (D85), so a new growth restarts from the distance still carried
+   * — up to the longest stretch a slide carries, so a burst is glided as far as
+   * that and no farther. Its length follows the pace the pieces arrive at, so
+   * the distance carried never outgrows one piece. The live turn's row is pinned
+   * to the scroller's bottom (chat-wait.css) and would ride the column's offset,
+   * so it gets the same slide reversed, started in the same frame: the two
+   * cancel and it stands.
    */
-  const startSlide = (column: HTMLElement, grew: number) => {
+  /** Expanded thinking headers currently stuck against the outer scroller's top edge (D95). */
+  const stuckThinkHeaders = (column: HTMLElement, scroller: Element | null): HTMLElement[] => {
+    if (scroller === null) return []
+    const found: HTMLElement[] = []
+    let scrollerTop: number | null = null
+    const all = thinkRows.all()
+    for (let i = all.length - 1; i >= 0; i -= 1) {
+      const think = all[i]
+      if (!think.hasAttribute(EXPANDED_ATTRIBUTE) || !column.contains(think)) continue
+      // Inside a capped process body, the whole body glides as one box with the column.
+      const processBody = think.closest(PROCESS_BODY_SELECTOR)
+      if (processBody !== null && processBody.closest(`[${PROCESS_EXPANDED_MODE_ATTRIBUTE}]`) === null) continue
+      const header = think.querySelector<HTMLElement>(DISCLOSURE_HEADER_SELECTOR)
+        ?? think.querySelector<HTMLElement>(DISCLOSURE_ROW_SELECTOR)
+      if (header === null || getComputedStyle(header).position !== 'sticky') continue
+      if (scrollerTop === null) scrollerTop = scroller.getBoundingClientRect().top
+      const rowRect = think.getBoundingClientRect()
+      const headerRect = header.getBoundingClientRect()
+      if (rowRect.top < scrollerTop - 0.5
+        && rowRect.bottom > scrollerTop + headerRect.height + 0.5
+        && Math.abs(headerRect.top - scrollerTop) <= 2) {
+        found.push(header)
+      }
+    }
+    return found
+  }
+
+  const startSlide = (column: HTMLElement, scroller: Element | null, grew: number) => {
     const from = Math.min(SCROLL_EASE_LEAD_PX, slideCarried() + grew)
     stopSlide()
-    const duration = motionMs('--dsh-claude-duration-slide')
+    const countersToAnimate: HTMLElement[] = []
+    const pinned = runningRows.all().find((row) => column.contains(row)) ?? null
+    if (pinned !== null) countersToAnimate.push(pinned)
+    for (const header of stuckThinkHeaders(column, scroller)) countersToAnimate.push(header)
+    const duration = slideDuration()
     const timing = { duration, easing: motionEase(GLIDE_TOKEN) }
     const columnSlide = column.animate([{ transform: `translateY(${from}px)` }, { transform: 'translateY(0px)' }], timing)
-    // The live turn's row, from the bus's list and this column's own: the host's
-    // trailing interaction surface stands after the row, so the column's last
-    // child is not it.
-    const pinned = runningRows.all().find((row) => column.contains(row)) ?? null
-    const rowSlide = pinned === null ? null : pinned.animate([{ transform: `translateY(${-from}px)` }, { transform: 'translateY(0px)' }], timing)
-    const running = { column: columnSlide, row: rowSlide, from, duration }
+    const counterFrames = [{ transform: `translateY(${-from}px)` }, { transform: 'translateY(0px)' }]
+    const counters = countersToAnimate.map((element) => element.animate(counterFrames, timing))
+    const running = { column: columnSlide, counters, from, duration }
     columnSlide.onfinish = () => {
       if (slide === running) slide = null
     }
@@ -293,7 +382,7 @@ export function createChatFollowGuard(options: { foldBusy: () => boolean, submis
    * (ChatViewport.attach). Subscribed `afterHost` once the column is there
    * (D40), this one runs after the pin in the same frame and puts the column
    * back down before it paints; one made at install would run first, and every
-   * pin would paint. The scroller is watched too, for its own height.
+   * pin would paint.
    *
    * The column's height is not read here: this runs in the batch's own
    * callback, when the host has just mounted the whole tree, and an
@@ -312,10 +401,15 @@ export function createChatFollowGuard(options: { foldBusy: () => boolean, submis
     slideColumn = column
     slideArmed = false
     slideHeight = 0
-    scrollerHeight = 0
+    slideScrollTop = null
+    seenAtTail = false
+    // A new column is a new conversation: the pace the old one streamed at is
+    // no reading of how fast this one's pieces arrive (D95).
+    grewAt = 0
+    grewEvery = 0
     if (column === null) return
-    const scroller = column.closest(CONVERSATION_SCROLL_SELECTOR)
-    stopSlideSize = observeSize(scroller === null ? [column] : [column, scroller], onSlideResize, { afterHost: true })
+    noteTailIfNear(column.closest(CONVERSATION_SCROLL_SELECTOR))
+    stopSlideSize = observeSize(column, onSlideResize, { afterHost: true })
   }
 
   /**
@@ -339,41 +433,82 @@ export function createChatFollowGuard(options: { foldBusy: () => boolean, submis
   }
 
   /**
+   * Put this frame's growth back under a reader who holds the conversation.
+   *
+   * The host's own follow pins the end on every growth while its mark stands,
+   * and a finger pressed on the screen sends no scroll of its own: nothing puts
+   * the host into its sampling window, so nothing stands its pin down, and the
+   * position the reader held moves one growth per burst (#230). The slide is
+   * refused while he holds, so this is the one writer left for it. A position
+   * away from the end is the reader's own and stays where he put it.
+   */
+  const holdGrowth = (column: HTMLElement) => {
+    const scroller = column.closest(CONVERSATION_SCROLL_SELECTOR)
+    if (scroller === null || column.closest(FOLLOWING_TAIL_SELECTOR) === null) return
+    if (scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop > 0.5) return
+    if (foldBusy()) return
+    // The host has already written the new tail. Restore the position the
+    // reader chose, which is the old tail only for a touch held there (#230).
+    writeScroll(scroller, readerScrollPosition(scroller)!, 'reader')
+  }
+
+  /**
    * The column's own box is what grows while text streams, and a resize is the
    * moment the host has just pinned the end: read the growth this frame
-   * brought and slide it.
+   * brought and slide it, or give it back to a reader holding it.
    */
   const onSlideResize = (entries: ResizeObserverEntry[]) => {
     const column = slideColumn
     let grew = 0
-    let before = slideHeight
     for (const entry of entries) {
-      if (entry.target !== column) {
-        scrollerHeight = blockSize(entry)
-        continue
-      }
+      if (column === null || entry.target !== column) continue
       const box = blockSize(entry)
       // The subscription's first report for a column is its height as mounted:
       // the baseline a later growth is measured against, never a growth itself.
       if (!slideArmed) {
         slideArmed = true
         slideHeight = box
-        before = box
+        slideScrollTop = column.closest(CONVERSATION_SCROLL_SELECTOR)?.scrollTop ?? 0
         continue
       }
-      before = slideHeight
       const delta = box - slideHeight
       slideHeight = box
+      // A structural shrink moves the host's pin by the height that left. An
+      // offset from growth before it would add a second, downward move.
+      if (delta < 0) stopSlide()
       // Any growth is slid, a burst included: startSlide's clamp bounds what a
       // glide carries, and a column the host replaced is no longer the one
       // watched here (slideSync re-subscribes when it changes).
-      if (delta > 0) grew = delta
+      if (delta > 0) {
+        grew = delta
+        // A faster arrival bounds this slide at once; smoothing a shorter gap
+        // would carry the old pause into the new stream and let offsets build
+        // up. Slower arrivals still ease toward their own pace (D85).
+        const now = performance.now()
+        if (grewAt > 0) {
+          const gap = now - grewAt
+          grewEvery = grewEvery === 0 ? gap : Math.min(gap, grewEvery * 0.6 + gap * 0.4)
+        }
+        grewAt = now
+      }
     }
+    const scroller = column?.closest(CONVERSATION_SCROLL_SELECTOR) ?? null
+    noteTailIfNear(scroller)
+    const scrollTop = scroller?.scrollTop ?? null
+    // Sibling rows can change the pin by less or more than the column grew.
+    // Compensate the host's actual position write, not only the column's delta.
+    const moved = slideScrollTop === null || scrollTop === null ? 0 : scrollTop - slideScrollTop
+    slideScrollTop = scrollTop
     holdCheck()
-    // Only a column that already overflowed had its end pinned by the whole
-    // growth; a first screen filling up moves nothing above it.
-    if (column === null || grew === 0 || before < scrollerHeight) return
-    if (slideWanted(column)) startSlide(column, grew)
+    if (column === null || grew === 0) return
+    if (readerAway()) {
+      holdGrowth(column)
+      if (scroller !== null) slideScrollTop = scroller.scrollTop
+      return
+    }
+    if (!slideWanted(column)) return
+    if (moved < 0) stopSlide()
+    if (moved > 0) startSlide(column, scroller, moved)
   }
 
   /**
@@ -385,6 +520,9 @@ export function createChatFollowGuard(options: { foldBusy: () => boolean, submis
     if (stopped || readerAway()) return
     const scroller = conversationScroller()
     if (scroller === null) return
+    noteTailIfNear(scroller)
+    // A conversation opened onto a saved historical position has never followed the tail.
+    if (!seenAtTail) return
     // More than a screen off the end is the reader reading higher up, not a follow that fell one step behind.
     if (scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop > scroller.clientHeight) return
     // A fold glide is moving the height, and the position is its business until it lands.
@@ -459,6 +597,9 @@ export function createChatFollowGuard(options: { foldBusy: () => boolean, submis
           && record.target.getAttribute(ROW_PHASE_ATTRIBUTE) !== RUNNING_STATE) {
           lastActivityAt = performance.now()
           structureSeen = true
+          // The row may shrink in this same batch. End its growth offset before
+          // that structural change paints; the resize subscription is the backup.
+          stopSlide()
         }
         continue
       }
@@ -466,6 +607,15 @@ export function createChatFollowGuard(options: { foldBusy: () => boolean, submis
         if (!marksStructure(node)) continue
         lastActivityAt = performance.now()
         structureSeen = true
+      }
+      for (const node of record.removedNodes) {
+        if (!(node instanceof Element)) continue
+        if (node.matches(CHAT_RUNNING_SELECTOR) || node.querySelector(CHAT_RUNNING_SELECTOR) !== null) {
+          // The live row leaving is the stream's structural boundary. Its last
+          // growth offset ends in this mutation batch, ahead of the next paint.
+          stopSlide()
+          break
+        }
       }
     }
     if (structureSeen || guardSeen) queue()
@@ -477,6 +627,7 @@ export function createChatFollowGuard(options: { foldBusy: () => boolean, submis
     const contentArrived = records.some(record => record.type === 'characterData' || record.addedNodes.length > 0 || record.removedNodes.length > 0)
     if (contentArrived) {
       slideSync()
+      noteTailIfNear(conversationScroller())
       holdCheck()
     }
   }
@@ -504,6 +655,8 @@ export function createChatFollowGuard(options: { foldBusy: () => boolean, submis
     stopSlide()
     releaseHold()
     runningRows.release()
+    thinkRows.release()
+    runningMarks.release()
     slideColumn = null
     leaveOwner()
   }
@@ -532,17 +685,37 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>) {
   const stopProcess = createChatProcessFollow()
   const tailStamp = createStamp<HTMLElement>(FOLLOW_TAIL_ATTR)
   const cards = observeComposerCards()
+  /** What the pass's read phase measured; the pass's sync consumes it. */
+  let passPlacement: FollowTailPlacement | null = null
+  /** What the viewport frame's read phase measured; that frame's reposition consumes it. */
+  let viewportPlacement: FollowTailPlacement | null = null
+  const readPlacement = () => readFollowTail(cards.all())
   document.body.setAttribute(CHAT_FOLLOW_ATTR, '')
   ui.chatFollow = {
-    sync() {
-      placeFollowTail(tailStamp, cards.all())
+    measure() {
+      passPlacement = readPlacement()
     },
-    /** A viewport or composer-card change moves the column: the button is placed again in the same frame. */
-    reposition() {
-      placeFollowTail(tailStamp, cards.all())
+    measureReposition() {
+      viewportPlacement = readPlacement()
+    },
+    sync() {
+      const placement = passPlacement
+      passPlacement = null
+      writeFollowTail(tailStamp, placement)
+    },
+    /**
+     * A viewport change was measured in its frame's read phase; a composer card
+     * resizing is reported after that layout, so it reads here and writes on.
+     */
+    reposition(reason) {
+      const placement = reason === 'viewport' && viewportPlacement !== null ? viewportPlacement : readPlacement()
+      viewportPlacement = null
+      writeFollowTail(tailStamp, placement)
     },
   }
   return () => {
+    passPlacement = null
+    viewportPlacement = null
     document.body.removeAttribute(CHAT_FOLLOW_ATTR)
     tailStamp.release()
     cards.release()

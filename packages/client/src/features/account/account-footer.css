@@ -244,8 +244,8 @@ body[data-dsh-claude-style] .dsh-claude-account-popover .dsh-claude-popover-item
 }
 
 /* ---------- Host account area ---------- */
-/* The host's own account row is the entry on a host that has one (Desktop
-   0.1.7+): it stays in the host's DOM and flow and is repainted here as a
+/* The host's own account row is the entry on a host that has one (Desktop):
+   it stays in the host's DOM and flow and is repainted here as a
    Claude row. features/account/account-footer.ts marks it with
    [data-dsh-claude-account-host-row]. */
 body[data-dsh-claude-style] [data-dsh-claude-account-host-row] {
@@ -320,7 +320,7 @@ body[data-dsh-claude-style] .dsh-claude-account-inject {
 }
 
 /* ---------- Host account menu: the skin's popover language ---------- */
-/* On a host with an account area (Desktop 0.1.7+) the host renders its own
+/* On a host with an account area (Desktop) the host renders its own
    account menu and the skin injects only its header and plugin rows into the
    list. features/account/surface.ts marks that menu while it is open, and the
    rules below repaint the host's card, rows and separators with the same card /
@@ -331,16 +331,29 @@ body[data-dsh-claude-style] .dsh-claude-account-inject {
    are the shared repainted-menu look (shared/popover.css); this card adds its
    width. */
 body[data-dsh-claude-style] [data-dsh-claude-account-menu] {
-  width: var(--dsh-claude-account-width, 260px);
+  /* A mirrored footer widget was laid out in the footer's content box, and the
+     account row is narrower than that box whenever the update indicator shares
+     the row's line. The card takes the wider of the row and the footer plus the
+     18px such a widget crosses on the way in: this card's own 6px padding and
+     1px border on both sides, and the embed wrapper's 2px inset on both sides.
+     The row remains the floor for a footer without a wide entry, and the page
+     bound keeps a wide footer from carrying the card past the window. */
+  width: max(var(--dsh-claude-account-width, 260px), calc(var(--dsh-claude-account-footer-width, 0px) + 18px));
   min-width: 0;
-  max-width: none;
+  max-width: min(340px, calc(var(--dsh-claude-page-width, 100vw) - 16px));
   box-sizing: border-box;
 }
 /* The entry animation is keyed on the armed marker rather than on the card
    marker (constants.ts): the armed marker is in place before the host mounts
    the card, so the animation runs from the card's first frame instead of
-   replaying over a card that was already painted. The host's shared menu card
-   is the only thing that mounts inside that window.
+   replaying over a card that was already painted.
+
+   Both rules also name the card's own marker (surface.ts): the armed marker sits
+   on <body>, and a rule reading it alone would hold every host menu — the
+   sidebar's own More card, the settings page's dropdowns — unpainted for as long
+   as it stands. surface.ts stamps the account menu from the mount pass, and a
+   pass writes before the frame paints, so the card is still held from its first
+   frame.
 
    The card is also held until the reveal marker lands. The host mounts its card
    with its own rows and places it from that geometry; the skin's container
@@ -348,11 +361,11 @@ body[data-dsh-claude-style] [data-dsh-claude-account-menu] {
    that. A card revealed on the mount frame fades in low and jumps up mid-fade,
    so inside the armed window it stays unpainted until surface.ts has seen our
    rows inside it and the host's placement stand still. */
-body[data-dsh-claude-style][data-dsh-claude-account-armed] div[role="menu"][data-menu-material]:not([data-dsh-claude-account-ready]) {
+body[data-dsh-claude-style][data-dsh-claude-account-armed] div[role="menu"][data-menu-material][data-dsh-claude-account-menu]:not([data-dsh-claude-account-ready]) {
   visibility: hidden;
   animation: none;
 }
-body[data-dsh-claude-style][data-dsh-claude-account-armed] div[role="menu"][data-menu-material][data-dsh-claude-account-ready] {
+body[data-dsh-claude-style][data-dsh-claude-account-armed] div[role="menu"][data-menu-material][data-dsh-claude-account-menu][data-dsh-claude-account-ready] {
   transform-origin: bottom left;
   animation: dsh-claude-dropdown-in var(--dsh-claude-duration-open) var(--dsh-claude-ease-settle);
 }

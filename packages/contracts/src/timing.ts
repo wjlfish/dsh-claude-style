@@ -1,22 +1,10 @@
 /**
- * The host's timing as one table (D3): the orders the skin depends on, what
- * breaks when one stops holding, and the check that holds each of them.
- *
- * The DOM contract (dom.ts, table.ts) says what the host's marks mean; this file
- * says *when* they happen — inside which callback, in which order relative to
- * the skin's own work. These are the assumptions a host upgrade breaks silently:
- * a selector that still matches but fires a frame later leaves the reader with a
- * jitter no smoke case notices.
- *
- * The checks are named rather than described: a scenario of the end-to-end lane
- * (packages/testing/e2e.cjs) or a unit test beside its module. The build refuses an entry
- * that names neither, and the lane refuses a scenario name outside
- * E2E_SCENARIOS, so an assumption cannot enter this table without something that
- * would notice it changing.
+ * Host callback ordering the skin depends on (D3), with the check guarding each assumption.
+ * Every entry must name an end-to-end scenario or spec (D92).
  */
 
 /** The end-to-end lane's scenarios; the lane checks its own names against these. */
-export const E2E_SCENARIOS = ['conversation', 'narrow', 'tool', 'fileMerge', 'send', 'sendFull', 'scroll', 'readerScroll', 'doorPin', 'streamPace', 'motion', 'processSummary', 'reasoningStream', 'waitLine', 'washLine', 'longSession', 'statsPosition', 'statsOverlay', 'sidebarRail', 'sidebarPeek', 'rightbar', 'contract', 'importance', 'remoteSettings', 'customBrand', 'dsBot', 'shots'] as const
+export const E2E_SCENARIOS = ['conversation', 'systemTypography', 'messageActions', 'messageAnswerActions', 'mobileHome', 'composerViewport', 'narrow', 'tool', 'fileMerge', 'send', 'sendFull', 'scroll', 'readerScroll', 'doorPin', 'streamPace', 'streamJitter', 'streamJitterFooter', 'streamJitterInline', 'motion', 'processSummary', 'reasoningStream', 'reasoningContinuous', 'waitLine', 'washLine', 'longSession', 'statsPosition', 'statsOverlay', 'statsFooter', 'sidebarRail', 'sidebarPeek', 'rightbar', 'sessionPanel', 'contract', 'importance', 'remoteSettings', 'usernameComposition', 'usernameIme', 'customBrand', 'dsBot', 'shots'] as const
 
 /** One timing assumption, and how it is held. */
 interface HostTimingEntry {
@@ -26,7 +14,7 @@ interface HostTimingEntry {
   assumption: string
   /** What the skin does with that order, and what breaks without it. */
   use: string
-  /** Where it is held: `scenario:<name>` of the lane, or `spec:<id>` of a spec (D77). */
+  /** Where it is held: `scenario:<name>` of the lane, or `spec:<id>` of a spec (D92). */
   checks: string[]
 }
 
@@ -35,7 +23,7 @@ export const HOST_TIMING: HostTimingEntry[] = [
     id: 'host.column-observer',
     assumption: 'The host creates its own ResizeObserver when it mounts a message column and writes the scroll position to the bottom inside that callback.',
     use: 'The skin\u2019s afterHost subscription is made later, so it runs after the host\u2019s in the same frame and can take the pin back before the frame paints (D74, D40).',
-    checks: ['scenario:scroll', 'spec:mechanism/page-observation/an afterHost subscription runs after a resize observer made before it'],
+    checks: ['scenario:scroll', 'scenario:streamJitter', 'spec:mechanism/page-observation/an afterHost subscription runs after a resize observer made before it'],
   },
   {
     id: 'host.follow-mark',
@@ -74,9 +62,21 @@ export const HOST_TIMING: HostTimingEntry[] = [
     checks: ['scenario:rightbar'],
   },
   {
+    id: 'host.session-projections',
+    assumption: 'The session query answers projection values under the host keys sessionStats, tokenUsage, contextPressure, contextBreakdown, subagentCatalog, agentTeam and forgeChangeRequests, with the numeric fields the rail prints.',
+    use: 'The details rail folds those values into its sections and session stats (features/session-panel, packages/host/src/session-panel.ts); a host that renames a projection leaves that section empty rather than showing a wrong figure.',
+    checks: ['scenario:sessionPanel'],
+  },
+  {
+    id: 'host.jobs-retained-output',
+    assumption: 'The jobs registry lists a job for its owning session until that owner collects it, and readAt returns the retained ring without moving the model cursor, with get carrying the settled status.',
+    use: 'A background row expands into its retained output (features/session-panel); a registry that moved the cursor on that read would take the output the model still needs.',
+    checks: ['scenario:sessionPanel'],
+  },
+  {
     id: 'host.composer-place',
     assumption: 'The composer seat is the conversation scroller\u2019s own sibling rather than a row inside the message column, so growing the column moves the transcript under the composer and never the composer itself.',
-    use: 'The stream slide puts the column back down with a transform on the column alone (D71); the lane holds the composer\u2019s box still through a fast answer on the strength of that shape.',
-    checks: ['scenario:streamPace'],
+    use: 'The stream slide puts the column back down with a transform on the column alone (D85); the lane holds the composer\u2019s box still through a fast answer on the strength of that shape.',
+    checks: ['scenario:streamPace', 'scenario:streamJitter', 'scenario:streamJitterFooter', 'scenario:streamJitterInline'],
   },
 ]

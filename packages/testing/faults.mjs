@@ -1,44 +1,19 @@
 #!/usr/bin/env node
 /**
- * faults.mjs — whether the specs catch known defects (D77).
- *
- * The corpus (packages/testing/faults/corpus.json) holds defects as patches on
- * the product's sources: a fix from history that still reverses on the current
- * tree (`"apply": "reverse"` over the fix's own diff), or a defect written down
- * from a spec's intent (`"apply": "forward"`). Each fault is applied in a
- * scratch copy of the tree under `.debug/faults/` — the working tree is never
- * touched, and the copy borrows `node_modules` through a directory link — and
- * the layers it can reach are run there: the logic and mechanism specs always,
- * the build and the behaviour specs of the feature directories the patch
- * touches. A fault is caught when an assertion of one of them goes red: a spec
- * that only stops loading, or a build check that refuses the source, proves
- * nothing about the reader's page and is reported apart. The ids that went red
- * are what the report keeps, so a spec no fault ever turns red is visible, and a
- * fault whose patch no longer applies fails the run rather than leaving the
- * corpus quietly.
- *
- * `--suite old` runs the same corpus against the unit lane the tree had at
- * `--base` (a revision of the caller's choosing: the lane stopped existing when
- * the specs replaced it), copied from git: the comparison the migration was
- * accepted on. The smoke and the end-to-end lane are the same in both suites and
- * are not run here.
- *
- * Usage: node packages/testing/faults.mjs [--fault <id>[,<id>…]] [--suite new|old --base <ref>] [--keep]
- *        --keep leaves the scratch copies in place for reading.
- * Exit:  0 the corpus caught at least the number packages/testing/faults/expected.json
- *        records, every fault applied, and the chosen faults were each caught ·
- *        1 the rate fell below the record, a fault no longer applies, or a named
- *        fault no assertion catches · 2 the run could not start
+ * faults.mjs — whether the specs catch known defects (D92). Only assertion
+ * failures count; a patch that no longer applies fails the run.
+ * Usage: `node packages/testing/faults.mjs [--fault <id>] [--suite new|old --base <ref>] [--keep]`.
  */
 import { execFileSync, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { ROOT } from '../../scripts/shared/spec-header.mjs'
+import { runsPath } from '../../scripts/shared/debug-paths.mjs'
 
 const CORPUS = path.join(import.meta.dirname, 'faults', 'corpus.json')
 /** The number of faults each suite catches by an assertion: the record a run may not fall below. */
 const RECORD = path.join(import.meta.dirname, 'faults', 'expected.json')
-const OUT = path.join(ROOT, '.debug', 'faults')
+const OUT = runsPath(ROOT, 'faults')
 const VITEST = path.join('node_modules', 'vitest', 'vitest.mjs')
 /** The behaviour lane waits on frames, so the corpus drives two pages at once. */
 const BEHAVIOUR_JOBS = ['--jobs', '2']
@@ -161,21 +136,21 @@ function judge(dir, fault, suite, cleanBehaviour) {
   const changed = touched.some((file, at) => (fs.existsSync(path.join(dir, file)) ? fs.readFileSync(path.join(dir, file), 'utf8') : null) !== before[at])
   if (!changed) return { id: fault.id, applied: false, red: [], note: 'the patch changed no file of the copy' }
   const red = []
-  const json = path.join(dir, '.debug', 'faults-vitest.json')
+  const json = runsPath(dir, 'faults-vitest.json')
   run(dir, VITEST, ['run', '--reporter=json', `--outputFile=${json}`])
   red.push(...vitestRed(dir, json))
   const { features, wide, browserHalf } = reach(patch)
   // The behaviour specs read the built page: the build is paid only where one of
   // them covers what the patch touches.
   const selection = wide || features.length === 0 ? [] : ['--feature', features.join(',')]
-  const listed = suite === 'new' && browserHalf ? run(dir, 'packages/testing/behaviour.mjs', ['--list', ...selection]) : null
+  const listed = suite === 'new' && browserHalf ? run(dir, 'packages/testing/stand-in.mjs', ['--list', ...selection]) : null
   if (listed !== null && listed.code === 0 && listed.output.trim() !== '') {
-    const build = run(dir, 'scripts/build.mjs', [])
+    const build = run(dir, 'scripts/build/build.mjs', [])
     if (build.code !== 0) {
       red.push(`build (${build.output.split('\n').find((line) => /error|refus/i.test(line)) ?? 'failed'})`)
     } else {
-      run(dir, 'packages/testing/behaviour.mjs', [...BEHAVIOUR_JOBS, ...selection])
-      const report = path.join(dir, '.debug', 'behaviour', 'report.json')
+      run(dir, 'packages/testing/stand-in.mjs', [...BEHAVIOUR_JOBS, ...selection])
+      const report = runsPath(dir, 'behaviour', 'report.json')
       // A behaviour test that already fails on the untouched copy is red for
       // its own reason, and saying the fault was caught by it would credit the
       // corpus with a judgement nothing made.
@@ -210,17 +185,17 @@ function main() {
   const archive = asked.suite === 'old' ? archiveOf(asked.base) : null
   // A clean run first: a lane already red on the untouched copy would count every fault as caught.
   scratchCopy(dir, archive)
-  const clean = run(dir, VITEST, ['run', '--reporter=json', `--outputFile=${path.join(dir, '.debug', 'faults-vitest.json')}`])
-  const cleanRed = vitestRed(dir, path.join(dir, '.debug', 'faults-vitest.json'))
+  const clean = run(dir, VITEST, ['run', '--reporter=json', `--outputFile=${runsPath(dir, 'faults-vitest.json')}`])
+  const cleanRed = vitestRed(dir, runsPath(dir, 'faults-vitest.json'))
   if (clean.code !== 0 || cleanRed.length > 0) bad(`the ${asked.suite} suite is red before any fault: ${cleanRed.slice(0, 5).join(' | ')}`)
   // The behaviour lane gets the same clean reading where a fault reaches it: a
   // test red on the untouched copy is red for its own reason.
   const cleanBehaviour = new Set()
   if (asked.suite === 'new' && chosen.some((fault) => reach(fs.readFileSync(path.join(import.meta.dirname, 'faults', fault.patch), 'utf8')).browserHalf)) {
-    const build = run(dir, 'scripts/build.mjs', [])
+    const build = run(dir, 'scripts/build/build.mjs', [])
     if (build.code !== 0) bad('the build is red before any fault; the behaviour lane cannot be read')
-    run(dir, 'packages/testing/behaviour.mjs', BEHAVIOUR_JOBS)
-    const report = path.join(dir, '.debug', 'behaviour', 'report.json')
+    run(dir, 'packages/testing/stand-in.mjs', [...BEHAVIOUR_JOBS, '--spec', 'specs/behaviour'])
+    const report = runsPath(dir, 'behaviour', 'report.json')
     if (fs.existsSync(report)) {
       for (const result of JSON.parse(fs.readFileSync(report, 'utf8')).results) {
         if (!result.ok && !result.quarantined) cleanBehaviour.add(result.id)

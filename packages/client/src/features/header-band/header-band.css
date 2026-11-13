@@ -21,7 +21,8 @@ body[data-dsh-claude-style] .dsh-claude-rightbar-close {
   height: 28px;
   padding: 0;
   border: none;
-  border-radius: 7px;
+  /* The caption row's controls share one plate (the rules below). */
+  border-radius: 8px;
   background: transparent;
   color: var(--dsw-alias-label-secondary, #70686a);
   cursor: pointer;
@@ -33,14 +34,23 @@ body[data-dsh-claude-style] .dsh-claude-rightbar-close:focus-visible {
   background: var(--dsh-claude-hover-bg, rgba(0, 0, 0, 0.08));
 }
 
-body[data-dsh-claude-style] [data-dsh-header-band~="title"] [data-dsh-header-title] {
+/* The two pieces the caption row holds — the session title, and the cluster the
+   host keeps beside it (the preset picker and the chips the session mounts
+   there) — take one place each. The pass stamps a piece it lifted and writes its
+   numbers on it; a piece left in the row carries no stamp, so these rules miss
+   it and the row keeps the height it takes there. */
+body[data-dsh-claude-style] [data-dsh-header-band~="title"] [data-dsh-header-title],
+body[data-dsh-claude-style] [data-dsh-header-band~="title"] [data-dsh-header-trail] {
   position: fixed !important;
-  /* The pass centres the box on the row's middle plus its own optical nudge. */
+  /* The pass centres each box on the measured caption row's middle. */
   top: var(--dsh-header-band-title-top, calc(var(--dsh-windows-titlebar-height, 40px) / 2)) !important;
   left: var(--dsh-header-band-left) !important;
-  /* The room the pass measured: past it the title would run into the tab strip
-     or the controls. The title's own crumb ellipsizes inside whatever width
-     this leaves (the host's own rule, unchanged). */
+  /* The room the pass measured for this piece: past it the title would run into
+     the tab strip or the controls, and the cluster into what stands after it.
+     The title's own crumb ellipsizes inside whatever width this leaves (the
+     host's own rule, unchanged). The pass hands the cluster no limit of its own:
+     a capped cluster measures at the cap, so the width it needs is only known
+     while it stands uncapped (header-band.ts). */
   max-width: var(--dsh-header-band-max, none) !important;
   margin: 0 !important;
   transform: translateY(-50%) !important;
@@ -67,18 +77,40 @@ body[data-dsh-claude-style] [data-dsh-titlebar-tabs] [data-dsh-header-band-tabs]
   left: var(--dsh-header-band-tabs-left, 50%) !important;
 }
 
-/* The row the title left: what it still holds — the preset picker, the
-   background-task chips, whatever the host mounts — rides up to sit just under
-   the title instead of on the line the title used to take. It is offset, not
-   re-laid: a margin would resize the row inside the header's own grid, and an
-   offset leaves the header's height — and with it the conversation below —
-   where the host put it. The pass writes the rise it measured, so the host's
-   inset is not assumed, and the row declares itself no-drag: its top now lies
-   inside the shell's drag strip. */
+/* The row the title left: what it still holds — the background-task chips,
+   whatever the host mounts there — rides up to sit just under the title instead
+   of on the line the title used to take. It is offset, not re-laid, so the fixed
+   pieces keep no containing block of their own. The pass writes the rise it
+   measured, so the host's inset is not assumed, and the row declares itself
+   no-drag: its top now lies inside the shell's drag strip. */
 body[data-dsh-claude-style] [data-dsh-header-band~="title"] [data-dsh-header-row] {
   position: relative !important;
   top: var(--dsh-header-band-row-lift, 0px) !important;
+  /* The host sizes this row for the title. With the title gone the controls it
+     still holds are shorter, and the header closes to them rather than to the
+     height the title took. */
+  height: auto;
+  min-height: 0;
   -webkit-app-region: no-drag !important;
+}
+/* The header closes around that row: the height it kept was the title's, and
+   the title now stands in the caption row. The measured top inset overrides the
+   host's inline value, the bottom one is dropped, and view-tabs reads that second
+   number where it restates the host's padding for a header without a tab strip.
+   The air the host keeps under its row is dropped with it: with nothing left in
+   the row the divider belongs at the caption row's own edge. */
+body[data-dsh-claude-style] [data-dsh-header-band~="title"] {
+  --dsh-header-band-bottom: 0px;
+  padding-top: var(--dsh-header-band-top, 10px) !important;
+  padding-bottom: 0 !important;
+  grid-template-rows: auto;
+}
+/* The host's own minimum height holds room for the title row the band has
+   emptied, and the grid's auto rows hand that room to the tab row, where the
+   strip stands at the top and the divider ends up below it. The title's row is
+   the skin's now, so the header closes to what it still holds. */
+body[data-dsh-claude-style] [data-dsh-header-band~="title"] {
+  min-height: 0;
 }
 /* The host hides a chip's label through a container query on the row's own
    width, which protects the title when the two share it. In the caption row the
@@ -88,10 +120,92 @@ body[data-dsh-claude-style] [data-dsh-header-band~="title"] [data-dsh-header-row
   display: flex !important;
 }
 
+/* The clusters' own air: a plate's neighbours stand one step apart, and the
+   break before the panel switches is drawn on the first of them. */
+body[data-dsh-claude-style] [data-dsh-claude-part~="header-utilities"],
+body[data-dsh-claude-style] [data-dsh-claude-part~="header-corner"] {
+  gap: 6px;
+}
+
+/* The header's controls read as one row of plates, in the caption row and in
+   the header's own row alike.
+
+   The host draws three of them its own way — the open-with split outlined at
+   24px around a coloured app icon, the bottom-panel switch round, the corner
+   switch with a glyph size of its own — and the skin's details control and its
+   proxy for the right panel took a radius of their own. Here they share one
+   box, one glyph size and one plate under the pointer, and the row divides into
+   three actions and the panel switches. */
+
+/* The open-with split is the row's quiet lead: no outline, one plate for the
+   whole box under the pointer, and the app's own colour kept for that pointer. */
+body[data-dsh-claude-style] [data-dsh-claude-part~="header-utilities"] [data-open-target] {
+  box-sizing: border-box;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+}
+body[data-dsh-claude-style] [data-dsh-claude-part~="header-utilities"] [data-open-target] > button {
+  height: 28px;
+  background: transparent;
+}
+body[data-dsh-claude-style] [data-dsh-claude-part~="header-utilities"] [data-open-target] > button + button {
+  border-left: 0;
+}
+body[data-dsh-claude-style] [data-dsh-claude-part~="header-utilities"] [data-open-target]:hover,
+body[data-dsh-claude-style] [data-dsh-claude-part~="header-utilities"] [data-open-target]:focus-within {
+  background: var(--dsh-claude-hover-bg, rgba(0, 0, 0, 0.08));
+}
+body[data-dsh-claude-style] [data-dsh-claude-part~="header-utilities"] [data-open-target] img {
+  filter: grayscale(1);
+  opacity: 0.7;
+}
+body[data-dsh-claude-style] [data-dsh-claude-part~="header-utilities"] [data-open-target]:hover img,
+body[data-dsh-claude-style] [data-dsh-claude-part~="header-utilities"] [data-open-target]:focus-within img {
+  filter: none;
+  opacity: 1;
+}
+
+/* The bottom-panel switch carries the row's break: the three actions stand
+   before it, the two switches after it, and its own circle becomes a plate. It
+   is the desktop shell's control, named by the stable half of its class family
+   the way the host's own menus are. */
+body[data-dsh-claude-style] [data-dsh-claude-part~="header-utilities"] [class*="_toggleButton"] {
+  position: relative;
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  margin-left: 12px;
+  padding: 0;
+  border-radius: 8px;
+}
+body[data-dsh-claude-style] [data-dsh-claude-part~="header-utilities"] [class*="_toggleButton"]::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: -9px;
+  width: 1px;
+  height: 16px;
+  transform: translateY(-50%);
+  background: var(--dsh-claude-divider, rgba(0, 0, 0, 0.06));
+}
+body[data-dsh-claude-style] [data-dsh-claude-part~="header-utilities"] [class*="_toggleButton"][aria-pressed="true"] {
+  color: var(--dsw-alias-label-primary, #161616);
+  background: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.06));
+}
+
+/* One glyph size for the row's plates. The split's own two buttons keep their
+   caret: they belong to the host's control, not to the plate. */
+body[data-dsh-claude-style] [data-dsh-claude-part~="header-utilities"] :not([data-open-target]) > button svg,
+body[data-dsh-claude-style] [data-dsh-claude-part~="header-corner"] button svg {
+  width: 16px;
+  height: 16px;
+}
+
 body[data-dsh-claude-style] [data-dsh-header-band~="actions"] [data-dsh-header-actions],
 body[data-dsh-claude-style] [data-dsh-header-band~="actions"] [data-dsh-header-corner] {
   position: fixed !important;
-  top: calc(var(--dsh-windows-titlebar-height, 40px) / 2) !important;
+  top: calc(var(--dsh-header-band-height, var(--dsh-windows-titlebar-height, 40px)) / 2) !important;
   /* Both clusters keep their order and their air through this offset alone:
      the corner sits off the caption buttons, the utilities off the corner. */
   right: var(--dsh-header-band-right) !important;

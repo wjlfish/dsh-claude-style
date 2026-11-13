@@ -107,6 +107,9 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>, mount:
     // marked open, so positioning first would skip it and leave the card
     // where it stood.
     if (effortPop !== null) setMenuPopoverOpen(effortPop, true, effortBtn)
+    // The field's frames stop with the card, so reopening it is what asks the
+    // top rung for the next one.
+    if (effortSlider !== null) effortSlider.wake()
     positionEffortPopover()
   }
 
@@ -151,7 +154,6 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>, mount:
    * own strays the same way.
    */
   function ensureEffortChrome() {
-    removeStrayNodes(document, popoverSelector, [effortPop])
     if (effortPop === null || effortPop.parentElement === null) {
       effortPop = document.createElement('div')
       effortPop.className = 'dsh-claude-popover-card dsh-claude-effort-popover'
@@ -278,6 +280,10 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>, mount:
   }
 
   registerPopover(popoverKey, closeEffortPopover)
+  // A previous generation's card — client HMR drops its disposals — is swept
+  // once here: the pass builds and reuses this generation's, and a document
+  // walk on that path would run on every frame of the page.
+  removeStrayNodes(document, popoverSelector, [])
 
   ui.effort = {
     measure() {

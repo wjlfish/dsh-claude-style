@@ -13,7 +13,7 @@ export default {
       r.permRows.every(function (row) { return row.preset !== 'auto' }) && r.permAutoRowDisplay === null,
       JSON.stringify(r.permRows))
     check('the tier reads as a Claude name, not as its machine id',
-      r.permRows[2].text.indexOf('Auto mode') === 0 && r.permRows[2].text.indexOf('分类器') !== -1 &&
+      r.permRows[2].text.indexOf('Auto mode') === 0 && r.permRows[2].text.indexOf('classifier') !== -1 &&
         r.permRows[2].text.indexOf('auto-mode') === -1,
       JSON.stringify(r.permRows[2].text))
     check('the ladder stays one text list: no row draws a glyph',
@@ -48,6 +48,13 @@ export default {
     check('switching the interface language repaints the rows and the trigger under the skin\'s own names',
       same(r.permNamesEn, ['Read only', 'Accept edits', 'Auto review', 'Full access']) && r.permTriggerEn === 'Full access',
       JSON.stringify({ names: r.permNamesEn, trigger: r.permTriggerEn }))
+    // The line under each name is the skin's own too, and it follows the same
+    // switch: a Chinese page reads Chinese, every other language the English
+    // line rather than leaving the Chinese one under an English name.
+    check('the line under each name follows the interface language as well',
+      same(r.permDescsZh, ['仅读取文件与分析，不修改代码', '允许编辑工作区文件', '无沙箱运行，调用前由模型审查', '自动执行，无需反复确认']) &&
+        same(r.permDescsEn, ['Read files and analyze them without changing code', 'Allow edits to files in the workspace', 'Run without a sandbox; the model reviews each call first', 'Run everything without repeated confirmation']),
+      JSON.stringify({ zh: r.permDescsZh, en: r.permDescsEn }))
     check('the composer\'s idle hint is the skin\'s own words in that language',
       same(r.hintsZh, { hosted: '输入 / 以使用命令', synthetic: null }) &&
         r.hintsDrawnZh === '输入 / 以使用命令',
@@ -156,8 +163,10 @@ export default {
   },
   'sync-fault'(r) {
     check('apply() completes', r.applyError === null, r.applyError)
-    check('only the two features that read the session list were switched off: the permission control and the model picker',
-      r.errors.length === 2 && r.errors.some((e) => e.includes('"permissions"')) && r.errors.some((e) => e.includes('"model"')), r.errors.join(' | '))
+    check('only the three features that read the session list were switched off: the permission control, the model picker and the manual unread marks; the date view reads it only once the bell is pressed, and the sound cues stand down with their setting',
+      r.errors.length === 3 && r.errors.some((e) => e.includes('"permissions"')) && r.errors.some((e) => e.includes('"model"')) &&
+        r.errors.some((e) => e.includes('"manualUnread"')) && !r.errors.some((e) => e.includes('"dateGroups"')),
+      r.errors.join(' | '))
     check("the host's own access button is handed back", r.hostAccessVisible === true, JSON.stringify(r.hostAccessVisible))
     check('the composer restyle keeps running', r.composerRestyle === true, JSON.stringify(r.composerRestyle))
     check('the rest of the skin keeps running', r.accountUser === 'Tester', JSON.stringify(r.accountUser))
@@ -215,8 +224,10 @@ export default {
     check('the account width variable is the account row box width',
       r.accountWidthVar === Math.round(r.hostRowWidth) + 'px',
       JSON.stringify({ variable: r.accountWidthVar, row: r.hostRowWidth }))
-    check('the host menu card is as wide as the account row',
-      r.menuCardWidth !== null && Math.round(r.menuCardWidth) === Math.round(r.hostRowWidth),
+    // The card takes the wider of the account row and the footer content a
+    // plugin's entry was laid out in, so the row stays its floor.
+    check('the host menu card is no narrower than the account row',
+      r.menuCardWidth !== null && Math.round(r.menuCardWidth) >= Math.round(r.hostRowWidth),
       JSON.stringify({ card: r.menuCardWidth, row: r.hostRowWidth }))
     check('hovering the host account row opens the host menu; leaving it closes',
       r.hoverOpenedMenu === true && r.hoverClosedMenu === true,
@@ -302,6 +313,18 @@ export default {
       !!nav.switchedOff && nav.switchedOff.rail === 0 && nav.switchedOff.hostReplaced === false && nav.switchedOff.hostShown === 'visible' &&
         !!nav.switchedOn && nav.switchedOn.rail === 1 && nav.switchedOn.hostReplaced === true,
       JSON.stringify({ off: nav.switchedOff, on: nav.switchedOn }))
+    const long = nav.long || {}
+    const longMost = (long.rows || 0) * 24 - (long.height || 0)
+    check('a long conversation\'s card scrolls, and the pointer\'s height over the rail\'s lines is where the list stands — proportional over the span between the ends\' rests',
+      long.rows === 20 && long.atTop === 0 && long.edgeTop === 0 && long.atBottom === longMost && long.edgeBottom === longMost &&
+        long.mid === Math.round(longMost / 2) && long.midAgain === Math.round(longMost / 2) && long.quarter === Math.round(longMost / 4),
+      JSON.stringify(long))
+    check('left of the lines the list stands still, and nothing stands between the wheel and the card\'s list',
+      long.frozen === long.quarter && long.wheelKept === false && long.wheelOverflow === 'auto' &&
+        long.wheelOverscroll === 'contain' && long.pageMoved === 0,
+      JSON.stringify(long))
+    check('two moves in one frame land on the last one: off the lines the list holds, back over them it steers',
+      long.sameFrameFrozen === long.quarter && long.sameFrameLatest === longMost, JSON.stringify(long))
     const older = nav.olderHost || {}
     check('a host that writes no place on its marks keeps the reading position and presses the mark at the row\'s place, the first row included',
       older.current === 4 && JSON.stringify(older.mid) === '[3]' && JSON.stringify(older.first) === '[3,0]', JSON.stringify(older))

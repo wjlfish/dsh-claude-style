@@ -42,12 +42,13 @@ export function install() {
   const lift = (boxes: HTMLElement[]) => {
     const running = boxes.filter(runs)
     if (running.length === 0 || running.length === boxes.length) return
-    const rest = boxes.filter((box) => !running.includes(box))
+    const runningSet = new Set(running)
+    const rest = boxes.filter((box) => !runningSet.has(box))
     const anchor = rest[0]
     const parent = anchor.parentElement
     if (parent === null) return
     // A list already standing first: every running seat is ahead of the first waiting one.
-    if (boxes.slice(0, running.length).every((box) => running.includes(box))) return
+    if (boxes.slice(0, running.length).every((box) => runningSet.has(box))) return
     for (const box of running) parent.insertBefore(box, anchor)
   }
 
@@ -65,16 +66,35 @@ export function install() {
    */
   const reorder = () => {
     if (document.body.hasAttribute('data-dsh-claude-date-groups')) return
-    const lists = new Map<Element, HTMLElement[]>()
+    const seatsByList = new Map<Element, Set<HTMLElement>>()
     for (const row of rows.all()) {
       const box = row.parentElement
       const list = box === null ? null : box.parentElement
       if (box === null || list === null) continue
-      const seats = lists.get(list)
-      if (seats === undefined) lists.set(list, [box])
-      else if (!seats.includes(box)) seats.push(box)
+      let known = seatsByList.get(list)
+      if (known === undefined) {
+        known = new Set()
+        seatsByList.set(list, known)
+      }
+      known.add(box)
     }
-    for (const seats of lists.values()) lift(seats)
+    // Walk each list's children in DOM order and treat any non-session child
+    // (workspace headings, group headings, dividers) as a hard boundary, so a
+    // shared flat list never lifts a running session across workspaces. The
+    // children are read once into an array: lifting a segment moves its seats,
+    // and the live collection would shift under a running iteration.
+    for (const [list, known] of seatsByList) {
+      let segment: HTMLElement[] = []
+      for (const child of [...list.children]) {
+        if (child instanceof HTMLElement && known.has(child)) {
+          segment.push(child)
+          continue
+        }
+        if (segment.length > 1) lift(segment)
+        segment = []
+      }
+      if (segment.length > 1) lift(segment)
+    }
   }
 
   const schedule = () => {
@@ -98,7 +118,19 @@ export function install() {
   const stopRows = subscribeMutations(
     document.body,
     { childList: true, subtree: true, attributes: true, attributeFilter: ['data-state'] },
-    schedule,
+    (records) => {
+      // Only a change inside a session row can move this order: a streamed
+      // answer reaches the body on every frame, and re-reading every list for
+      // it would put the whole sidebar on the conversation's clock. Rows the
+      // host adds or removes are announced by the registry above.
+      for (const record of records) {
+        const target = record.target
+        if (target instanceof Element && target.closest(SESSION_ROW_SELECTOR) !== null) {
+          schedule()
+          return
+        }
+      }
+    },
   )
 
   reorder()

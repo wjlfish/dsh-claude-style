@@ -1,74 +1,34 @@
 import { subscribeMutations } from './bus'
 import { skin } from './skin'
-import { COMPOSER_SELECTOR, CONVERSATION_SCROLL_SELECTOR, CONVERSATION_SESSION_ATTRIBUTE, CONVERSATION_SESSION_SELECTOR, FOLLOW_THRESHOLD_PX, PROCESS_BODY_SELECTOR } from '@dsh-claude-style/contracts/dom'
+import { CHAT_RUNNING_SELECTOR, COMPOSER_SELECTOR, CONVERSATION_SCROLL_SELECTOR, CONVERSATION_SESSION_ATTRIBUTE, CONVERSATION_SESSION_SELECTOR, FOLLOW_THRESHOLD_PX, PROCESS_BODY_SELECTOR, SIDEBAR_SLOT_SELECTOR, STREAMING_SELECTOR } from '@dsh-claude-style/contracts/dom'
 import { SCROLL_KEYS, SUBMISSION_ROW_SELECTOR, conversationScroller, findFollowTailButton, isScrollbarStrip } from './chat-dom'
 import { SCROLL_EASE_LEAD_PX, easeScroll, isScrollEasing, scrollEasePosition, scrollEnd, stopScrollEase } from './scroll-ease'
 
 /**
- * The chat area's scroll positions have one writer (D40): the conversation's
- * scroller and every capped process body are written here and nowhere else.
- * Features ask; this module decides, on the spring of packages/engine/src/scroll-ease.ts.
- *
- * The sources, from the strongest claim to the weakest:
- *
- *   jump      the conversation navigator walking to a turn the reader picked
- *   fold      a fold's own position work: putting the position back after
- *             the skin's press on a group header, and handing the follow
- *             back once a door has rolled
- *   composer  keeping a reader at the end while the composer card changes height
- *   follow    the follow's hand-back at a structural moment
- *   process   a capped process body's catch-up
- *
- * The rules, per container:
- *   - a request whose source ranks below the ease running there is refused;
- *     an equal or higher one is carried out, and a write ends a running ease
- *     that ranks below it;
- *   - follow and process requests are refused while the reader holds the
- *     container (readerHolds), and their eases end the moment he does;
- *   - while the reader's animation choice means "no animation", an ease is
- *     its destination written at once.
- * While content streams, nothing here writes: the host's own follow pins the
- * end, and the follow feature slides what the pin pushed up (D71). It asks the
- * owner whether the reader's own message has just arrived (submissionHolds);
- * that hold is dropped when the scroller is replaced, because a conversation
- * opening mounts its own user rows and its jump is not the one being
- * protected (claimConversation).
- * The reader's own wheel is the browser's: this module only records that he
- * moved (noteIntent), so the following sources stand down. The conversation
- * scroller above the container he holds carries skin().readerHold while he
- * does, and the live status line's pin hangs on that mark: it stands only
- * while the follow is the one moving the position, never over content the
- * reader scrolled back to.
- *
- * The host's side of the follow is handed over here too: the host's follow is
- * lit back up through its own button (handBackFollow).
+ * The chat area's scroll positions have one writer (D40): features ask, this module decides on the spring of scroll-ease.ts. Sources rank jump > fold > reader > composer > follow > process; a request below the ease running is refused, and composer, follow and process are refused while the reader holds the container. The reader source is his own position held under a stream's growth.
+ * While content streams nothing here writes: the host's follow pins the end, and the follow feature slides what the pin pushed up (D85). The reader's own wheel stays the browser's and is only recorded (noteIntent), so the following sources stand down; the scroller above a held container carries skin().readerHold for the waiting line's pin.
  */
 
 export { SCROLL_EASE_LEAD_PX }
 
-export type ScrollSource ='jump' | 'fold' | 'composer' | 'follow' | 'process'
+export type ScrollSource ='jump' | 'fold' | 'reader' | 'composer' | 'follow' | 'process'
 
 /** Each source's rank; a higher rank's claim stands over a lower one's. */
 const SCROLL_SOURCE_RANK: Record<ScrollSource, number> = {
   process: 1,
   follow: 2,
   composer: 3,
+  reader: 4,
   fold: 5,
   jump: 6,
 }
 /** The sources that only follow the end: the reader holding a container stops them. */
-const FOLLOWING_SOURCES = new Set<ScrollSource>(['follow', 'process'])
+const FOLLOWING_SOURCES = new Set<ScrollSource>(['composer', 'follow', 'process'])
 
 /** How close to a process body's end the reader has to come for his hold on it to end. */
 const PROCESS_RELEASE_THRESHOLD_PX = 4
 /**
- * How long the stream slide stands down after a submission arrives. The two
- * arrivals are chat-dom.ts's SUBMISSION_ROW_SELECTOR: the reader's own message
- * row, and the echo the host mounts in its place before the real row takes over.
- * The host's own jump to a freshly sent message is deliberate — the reader has to
- * see the message he just sent — and the echo is swapped for the real row
- * about a second later, which moves the position again. The stand-down
- * covers both.
+ * How long the stream slide stands down after a submission arrives: the host's jump to a message just sent is deliberate, and its echo row (SUBMISSION_ROW_SELECTOR, chat-dom.ts) is swapped for the real one about a second later, which moves the position again.
  */
 const SUBMISSION_HOLD_MS = 1200
 /** How many times a hand-back looks again; the host may turn its follow off a beat later. */
@@ -76,21 +36,17 @@ const FOLLOW_LOOK_ROUNDS = 5
 /** The gap between two looks; five of them cover the host's 500 ms sampling window. */
 const FOLLOW_LOOK_INTERVAL_MS = 100
 
-/**
- * The reader's intent events. The conversation reads all of them: a touch
- * drag takes its hold on touchstart and the touchmoves that follow aim it
- * (touchAim below); a process body reads all but beforematch (in-page find
- * has nothing to do with a body); "moved since" reads the four that really
- * move a position.
- */
-const INTENT_TYPES = ['wheel', 'touchstart', 'touchmove', 'pointerdown', 'keydown', 'beforematch']
+/** The reader's intent events: a process body reads all but beforematch, and "moved since" reads only the four that move a position. */
+const INTENT_TYPES = ['wheel', 'touchstart', 'touchmove', 'touchend', 'touchcancel', 'pointerdown', 'keydown', 'beforematch']
 const MOVING_INTENT_TYPES = new Set(['wheel', 'touchstart', 'pointerdown', 'keydown'])
+/** Scroll keys that move away from the conversation's tail; Shift+Space joins them. */
+const UPWARD_SCROLL_KEYS = new Set(['ArrowUp', 'PageUp', 'Home'])
+/** Subtrees whose mutations are streaming tokens or sidebar chrome, never a user submission row. */
+const NON_SUBMISSION_SUBTREE = `${SIDEBAR_SLOT_SELECTOR}, ${STREAMING_SELECTOR}, ${CHAT_RUNNING_SELECTOR}`
+/** The two ends of a touch drag: the finger leaves the screen, and the drag's aim decides the hold. */
+const TOUCH_END_TYPES = new Set(['touchend', 'touchcancel'])
 
-/**
- * Whether an event is the reader taking the scroll over, asked for every intent
- * event the owner hears. Two rules: a pointer or key inside the composer is the
- * reader typing, and of the keys only the ones that scroll the viewport count.
- */
+/** Whether an event is the reader taking the scroll over: a pointer or key inside the composer is him typing, and of the keys only the ones that scroll the viewport count. */
 function isReaderScrollIntent(event: Event) {
   const target = event.target
   if (target instanceof Element && target.closest(COMPOSER_SELECTOR) !== null) return false
@@ -98,30 +54,24 @@ function isReaderScrollIntent(event: Event) {
   return event instanceof KeyboardEvent && SCROLL_KEYS.has(event.key)
 }
 
-/**
- * The source of the ease running on each container; stale once the spring has let go of it.
- *
- * A WeakMap on purpose: an entry is dropped when the container is asked about
- * again, but a spring that arrives on its own never asks, and a Map would hold
- * that container — and the conversation subtree hanging off it — for the life of
- * the page. Nothing iterates the table, so weak keys cost nothing.
- */
+/** The source of the ease running on each container, stale once the spring has let go. A WeakMap because a spring that arrives on its own never asks again, and a Map would hold the container and its conversation subtree for the life of the page. */
 const easeSources = new WeakMap<Element, ScrollSource>()
 /** The containers the reader holds: an intent was seen there and he has not come back to the end. A Set, so leaving the owner can take every mark off again. */
 const held = new Set<Element>()
+/** The position the reader chose on each held container; host writes to the tail never replace it. */
+const readerPositions = new WeakMap<Element, number>()
+/** The scroll range (scrollHeight - clientHeight) when readerPositions was last recorded, to tell a host growth pin from reader travel. */
+const readerFloors = new WeakMap<Element, number>()
 /** The held containers the reader has since moved toward the end of: his own way back to it. */
 const heldTowardEnd = new WeakSet<Element>()
 /** The conversation scrollers carrying the hold mark, so leaving the owner can take every one off again. */
 const markedScrollers = new Set<Element>()
 /** When the reader last made a moving intent, for movedSince. */
 let lastMovingIntentAt = 0
-/**
- * The vertical reading of the contact the current touch drag last reported.
- * A touchmove's direction is the travel between two readings, so the
- * touchstart's reading is the drag's origin and every touchmove after it
- * aims the hold: up toward the end, down away from it.
- */
+/** The vertical reading the current touch drag last reported: touchstart's reading is its origin, and each touchmove's travel aims the hold. */
 let touchContactY: number | null = null
+/** The container whose scrollbar strip is currently pressed; direction follows actual scroll travel until release. */
+let scrollbarDrag: Element | null = null
 
 /** The contact's vertical reading, or null when the event carries none. */
 function contactY(event: TouchEvent): number | null {
@@ -134,18 +84,34 @@ let submissionHoldUntil = 0
 let claimedSession: string | null = null
 /** How many features use the owner; its listeners live while one does. */
 let members = 0
+/** Bumped when the owner's listeners go: work begun by one installation ends with it. */
+let ownerGeneration = 0
 let stopSubmissionWatch: (() => void) | null = null
 
 /**
- * Publish the hold on the container's conversation scroller: the waiting
- * line's pin hangs on that mark (chat-wait.css), and the line lives under the
- * scroller, so a flip there invalidates the conversation's subtree rather
- * than the document (D9). Every container the chat page can hold sits under
- * that scroller — a capped process body included. A held container with no
- * conversation scroller above it (the settings page's own) marks nothing: no
- * line this pin governs is on that page.
+ * Drop the containers the page took away. A detached container never sends the
+ * scroll that ends its hold, so an entry left in `held` would keep the whole
+ * transcript under it reachable: a session switch replaces the conversation
+ * subtree, and the holds taken on the old one are finished there.
  */
+function forgetDetached() {
+  for (const container of [...held]) {
+    if (container.isConnected) continue
+    held.delete(container)
+    readerPositions.delete(container)
+    readerFloors.delete(container)
+    heldTowardEnd.delete(container)
+  }
+  for (const scroller of [...markedScrollers]) {
+    if (scroller.isConnected) continue
+    scroller.removeAttribute(skin().readerHold)
+    markedScrollers.delete(scroller)
+  }
+}
+
+/** Publish the hold on the container's conversation scroller, where the waiting line's pin hangs (chat-wait.css); a flip there invalidates the conversation's subtree rather than the document (D9). A held container with no conversation scroller above it marks nothing. */
 function syncHoldMark(container: Element) {
+  forgetDetached()
   const scroller = container.closest(CONVERSATION_SCROLL_SELECTOR)
   if (scroller === null) return
   let anyHeld = false
@@ -164,16 +130,21 @@ function syncHoldMark(container: Element) {
   markedScrollers.delete(scroller)
 }
 
-/**
- * Put a container's hold down or take it up, with the mark the page can read:
- * the waiting line's pin hangs on it (chat-wait.css). Every change of
- * `held` goes through here, so the two cannot say different things.
- */
+/** Put a container's hold down or take it up with the mark the page reads (the waiting line's pin, chat-wait.css); every change of `held` goes through here, so the two cannot disagree. */
+function floorOf(container: Element) {
+  return Math.max(0, container.scrollHeight - container.clientHeight)
+}
+
 function setHeld(container: Element, holding: boolean) {
   if (holding === held.has(container)) return
-  if (holding) held.add(container)
-  else {
+  if (holding) {
+    held.add(container)
+    readerPositions.set(container, container.scrollTop)
+    readerFloors.set(container, floorOf(container))
+  } else {
     held.delete(container)
+    readerPositions.delete(container)
+    readerFloors.delete(container)
     heldTowardEnd.delete(container)
   }
   syncHoldMark(container)
@@ -197,17 +168,29 @@ function claim(container: Element, source: ScrollSource) {
   return true
 }
 
+/** The reader's chosen position, or null while that container is not held. */
+export function readerScrollPosition(container: Element): number | null {
+  return readerPositions.get(container) ?? null
+}
+
 /**
- * Whether the reader holds this container: he made an intent there and has
- * not come back within its end's threshold since.
- *
- * The end is not always his doing: the host's own follow keeps writing the
- * position there while a turn runs, and between those writes the gap leaves
- * the threshold for a single frame. So a position at the end is not what ends
- * the hold — his own move toward the end is (heldTowardEnd), and a hold taken
- * without one stands even with the container sitting at its end. `holdReader`
- * takes a hold that way, for a jump the reader picked himself.
+ * Whether the reader holds this container: he made an intent there and has not come back within its end's threshold since. A position at the end does not end the hold, because the host's follow keeps writing it there; only his own move toward the end does (heldTowardEnd).
  */
+/**
+ * Whether a tail reading on the container came from the host pinning new growth
+ * rather than the reader travelling to the end: the floor grew while the
+ * reader's last recorded position still sat beyond the release band.
+ */
+function isHostGrowthPin(container: Element, floor: number, threshold: number) {
+  if (scrollbarDrag === container || floor - container.scrollTop > 0.5) return false
+  const prevTop = readerPositions.get(container)
+  const prevFloor = readerFloors.get(container)
+  return prevTop !== undefined
+    && prevFloor !== undefined
+    && floor > prevFloor + 0.5
+    && prevFloor - prevTop > threshold
+}
+
 export function readerHolds(container: Element) {
   if (!held.has(container)) return false
   // Only a move toward the end can end a hold, so a hold without one is
@@ -216,7 +199,13 @@ export function readerHolds(container: Element) {
   // layout pass over the whole page (D9).
   if (!heldTowardEnd.has(container)) return true
   const threshold = container.matches(PROCESS_BODY_SELECTOR) ? PROCESS_RELEASE_THRESHOLD_PX : FOLLOW_THRESHOLD_PX
-  if (container.scrollHeight - container.clientHeight - container.scrollTop > threshold) return true
+  const floor = floorOf(container)
+  if (floor - container.scrollTop > threshold) return true
+  if (isHostGrowthPin(container, floor, threshold)) {
+    heldTowardEnd.delete(container)
+    readerFloors.set(container, floor)
+    return true
+  }
   setHeld(container, false)
   return false
 }
@@ -227,14 +216,19 @@ export function releaseReader(container: Element) {
 }
 
 /**
- * Take the reader's hold on a container without an intent event.
- *
- * A jump to a turn he picked is the reader choosing where to read, so the
- * following sources have to stand down the way they do after his own wheel —
- * otherwise the next burst of output drags him back to the end. The release is
- * the holds' own: his move toward the end of it, or a position that never left
- * the end when his move is the one that took the hold.
- *
+ * Settle a hold the reader's drag has carried back to the end, and hand the conversation's follow back with it: the end of a drag sends no scroll of its own, and the host's follow then comes back only from a scroll landing at the end or from its back-to-end button.
+ */
+function releaseAtTail(container: Element) {
+  if (readerHolds(container)) return
+  if (!container.matches(CONVERSATION_SCROLL_SELECTOR)) return
+  // The walk in flight gives up where the reader takes the container again, and
+  // where the owner has been left: a hand-back outlives the frame it began in.
+  const generation = ownerGeneration
+  handBackFollow('follow', { stillWanted: () => generation === ownerGeneration && !held.has(container) })
+}
+
+/**
+ * Take the reader's hold on a container without an intent event: a jump to a turn he picked is him choosing where to read, so the following sources stand down until his move toward the end or a position already at the end ends it.
  * @param container - the container the reader is now reading.
  */
 export function holdReader(container: Element) {
@@ -260,35 +254,24 @@ let sessionElement: Element | null = null
 let sessionId: string | null = null
 
 /**
- * Note which conversation the owner is working in, and drop what belonged to the
- * previous one. Every claim asks, so past the first it is one attribute read:
- * the conversation's element is kept the way the scroller is, and a session
- * switch replaces the content inside it.
- *
- * The submission hold is armed by the nodes a conversation renders — opening a
- * session mounts its user rows, which look exactly like a message just sent —
- * and it protects the host's jump to a message the reader has just sent, which
- * belongs to the conversation he left. Left standing, it stands the stream
- * slide down for its whole window over the history the new conversation just
- * opened.
+ * Note which conversation the owner is working in, and drop what belonged to the previous one: the submission hold is armed by the rows a conversation renders, so left standing it would hold the stream slide down over the history the new conversation opens.
  */
 function claimConversation() {
   if (sessionElement === null || !sessionElement.isConnected) {
+    // The conversation this owner knew is gone: the next one's scroller is a
+    // different element, and the holds taken on the old one ended with it.
+    if (sessionElement !== null) forgetDetached()
     sessionElement = conversationScroller()?.closest(CONVERSATION_SESSION_SELECTOR) ?? null
   }
   const next = sessionElement?.getAttribute(CONVERSATION_SESSION_ATTRIBUTE) ?? null
   if (next === sessionId) return
   sessionId = next
   submissionHoldUntil = 0
+  forgetDetached()
 }
 
 /**
- * Whether an intent is the reader's move in the conversation: the event landed
- * inside its scroller, or it is a key pressed with nothing else focused, which
- * the page scrolls. A press or a wheel anywhere else — the sidebar, a child
- * transcript open beside the conversation, a panel — moves something else, and
- * taken as a hold it would stop the follow and leave every following source
- * reading the position on every frame (readerHolds).
+ * Whether an intent is the reader's move in the conversation: inside its scroller, or a key pressed with nothing else focused. A press or wheel anywhere else moves something else, and taken as a hold it would stop the follow and leave every following source reading the position each frame.
  */
 function intentReaches(scroller: Element, event: Event) {
   const target = event.target
@@ -300,15 +283,22 @@ function noteIntent(event: Event) {
   if (!isReaderScrollIntent(event)) return
   const moving = MOVING_INTENT_TYPES.has(event.type)
   if (moving) lastMovingIntentAt = performance.now()
-  // A wheel carries where the reader is going; the others are read as his move
-  // toward the end, since none of them can be sent by a follower. A touch drag
-  // is the exception. Its touchstart takes the hold with NO direction of its
-  // own: aimed at the end from the start, the hold would end the moment the
-  // stream's own pin left the position at the end — the iPhone's
-  // cannot-stop-the-stream (#206). Each touchmove after it aims the hold by
-  // the contact's travel alone: only the vertical displacement counts, so a
-  // horizontal flick aims nothing.
-  let towardEnd = !(event instanceof WheelEvent) || event.deltaY >= 0
+  // The finger left the screen: the drag it ends is aimed already, so this
+  // settles holds and takes no new one. Read before the branches below, which
+  // would otherwise hold a reader who is leaving.
+  if (TOUCH_END_TYPES.has(event.type)) {
+    touchContactY = null
+    for (const container of [...held]) releaseAtTail(container)
+    return
+  }
+  // Direction follows the gesture itself: wheel delta, scroll key polarity, or
+  // actual scroll travel under a scrollbar drag. Upward keys, beforematch and
+  // scrollbar presses start aimed away so the first scroll step never drops the hold.
+  let towardEnd = true
+  if (event instanceof WheelEvent) towardEnd = event.deltaY >= 0
+  else if (event instanceof KeyboardEvent) towardEnd = !(UPWARD_SCROLL_KEYS.has(event.key) || (event.key === ' ' && event.shiftKey))
+  else if (event.type === 'pointerdown' || event.type === 'beforematch') towardEnd = false
+
   let touchAim: boolean | null = null
   if (event instanceof TouchEvent) {
     const y = contactY(event)
@@ -320,20 +310,27 @@ function noteIntent(event: Event) {
       touchContactY = y
     }
   }
+  const target = event.target
+  const isScrollPointer = (container: Element) =>
+    event.type !== 'pointerdown'
+    || (event instanceof PointerEvent && (isScrollbarStrip(container, event, target) || event.button === 1))
+
   if (event.type !== 'touchmove') {
-    // The container is kept by packages/engine/src/chat-dom.ts: a trackpad sends
-    // hundreds of these a second.
     const scroller = conversationScroller()
     claimConversation()
-    // Only once the content has grown a scrollbar: before that there is nothing to hold.
-    if (scroller !== null && intentReaches(scroller, event) && scroller.scrollHeight - scroller.clientHeight > 0) {
-      if (moving && towardEnd) heldTowardEnd.add(scroller)
+    if (scroller !== null && intentReaches(scroller, event) && isScrollPointer(scroller) && scroller.scrollHeight - scroller.clientHeight > 0) {
+      if (event.type === 'pointerdown') beginScrollbarDrag(scroller)
+      if (moving) {
+        if (towardEnd) {
+          heldTowardEnd.add(scroller)
+          readerFloors.set(scroller, floorOf(scroller))
+        } else {
+          heldTowardEnd.delete(scroller)
+        }
+      }
       setHeld(scroller, true)
     }
   } else if (touchAim !== null) {
-    // The drag's travel aims the hold its touchstart took: up toward the end,
-    // down away from it. A touchmove without a hold aims nothing, and a drag
-    // that left the conversation aims no hold it does not own.
     const scroller = conversationScroller()
     claimConversation()
     if (scroller !== null && held.has(scroller)) {
@@ -342,42 +339,79 @@ function noteIntent(event: Event) {
     }
   }
   if (event.type === 'beforematch') return
-  const target = event.target
   if (!(target instanceof Element)) return
   const body = target.closest(PROCESS_BODY_SELECTOR)
   if (body === null) return
-  // A press anywhere on the body is kept for the scrollbar's own strip alone;
-  // content reached through a body (a row, a link) is opening something rather
-  // than scrolling it. The pointer is on the bar itself exactly when the event
-  // was addressed to the body, which is what the predicate is handed; the
-  // conversation's own strip is read by the same predicate, one level up.
-  if (event.type === 'pointerdown' && !(event instanceof PointerEvent && isScrollbarStrip(body, event, target))) return
-  // A scroll key the host has already handled knows where it is going.
+  if (!isScrollPointer(body)) return
   if (event.type === 'keydown' && event.defaultPrevented) return
-  if (moving && towardEnd) heldTowardEnd.add(body)
-  else if (touchAim !== null && held.has(body)) {
+  if (event.type === 'pointerdown') beginScrollbarDrag(body)
+  if (moving) {
+    if (towardEnd) {
+      heldTowardEnd.add(body)
+      readerFloors.set(body, floorOf(body))
+    } else {
+      heldTowardEnd.delete(body)
+    }
+  } else if (touchAim !== null && held.has(body)) {
     if (touchAim) heldTowardEnd.add(body)
     else heldTowardEnd.delete(body)
   }
   setHeld(body, true)
 }
 
-/**
- * A held container that has come back to its end is released as it scrolls,
- * before content growing under it can move the end away again.
- */
+function endScrollbarDrag() {
+  const dragged = scrollbarDrag
+  scrollbarDrag = null
+  document.removeEventListener('pointerup', endScrollbarDrag, true)
+  document.removeEventListener('pointercancel', endScrollbarDrag, true)
+  window.removeEventListener('blur', endScrollbarDrag)
+  if (dragged !== null && held.has(dragged)) releaseAtTail(dragged)
+}
+
+function beginScrollbarDrag(container: Element) {
+  scrollbarDrag = container
+  document.addEventListener('pointerup', endScrollbarDrag, true)
+  document.addEventListener('pointercancel', endScrollbarDrag, true)
+  window.addEventListener('blur', endScrollbarDrag)
+}
+
+/** Release a held container as it comes back to its end, before growth can move the end away again, and hand a released conversation back to the host's follow. */
 function noteScroll(event: Event) {
   const target = event.target
-  if (target instanceof Element && held.has(target)) readerHolds(target)
+  if (!(target instanceof Element) || !held.has(target)) return
+  const floor = floorOf(target)
+  const prevTop = readerPositions.get(target)
+  if (scrollbarDrag === target && prevTop !== undefined) {
+    if (target.scrollTop > prevTop + 0.5) heldTowardEnd.add(target)
+    else if (target.scrollTop < prevTop - 0.5) heldTowardEnd.delete(target)
+  }
+  const threshold = target.matches(PROCESS_BODY_SELECTOR) ? PROCESS_RELEASE_THRESHOLD_PX : FOLLOW_THRESHOLD_PX
+  const hostGrowthPin = isHostGrowthPin(target, floor, threshold)
+  if (floor - target.scrollTop > 0.5) {
+    readerPositions.set(target, target.scrollTop)
+    readerFloors.set(target, floor)
+  }
+  if (!hostGrowthPin) releaseAtTail(target)
+}
+
+function hasSubmissionNode(nodes: NodeList) {
+  for (let i = 0; i < nodes.length; i += 1) {
+    const node = nodes[i]
+    if (node instanceof Element && (node.matches(SUBMISSION_ROW_SELECTOR) || node.querySelector(SUBMISSION_ROW_SELECTOR) !== null)) {
+      return true
+    }
+  }
+  return false
 }
 
 function noteSubmission(records: MutationRecord[]) {
-  for (const record of records) {
-    for (const node of [...record.addedNodes, ...record.removedNodes]) {
-      if (node instanceof Element && (node.matches(SUBMISSION_ROW_SELECTOR) || node.querySelector(SUBMISSION_ROW_SELECTOR) !== null)) {
-        submissionHoldUntil = performance.now() + SUBMISSION_HOLD_MS
-        return
-      }
+  for (let i = 0; i < records.length; i += 1) {
+    const record = records[i]
+    if (record.addedNodes.length === 0 && record.removedNodes.length === 0) continue
+    if (record.target instanceof Element && record.target.closest(NON_SUBMISSION_SUBTREE) !== null) continue
+    if (hasSubmissionNode(record.addedNodes) || hasSubmissionNode(record.removedNodes)) {
+      submissionHoldUntil = performance.now() + SUBMISSION_HOLD_MS
+      return
     }
   }
 }
@@ -405,13 +439,19 @@ export function joinScrollOwner() {
     left = true
     members -= 1
     if (members > 0) return
+    ownerGeneration += 1
+    if (scrollbarDrag !== null) endScrollbarDrag()
     for (const type of INTENT_TYPES) document.removeEventListener(type, noteIntent, true)
     window.removeEventListener('scroll', noteScroll, true)
     if (stopSubmissionWatch !== null) stopSubmissionWatch()
     stopSubmissionWatch = null
     for (const scroller of markedScrollers) scroller.removeAttribute(skin().readerHold)
     markedScrollers.clear()
-    for (const container of held) heldTowardEnd.delete(container)
+    for (const container of held) {
+      heldTowardEnd.delete(container)
+      readerPositions.delete(container)
+      readerFloors.delete(container)
+    }
     held.clear()
   }
 }
@@ -469,31 +509,9 @@ export function scrollPositionFor(container: Element) {
 }
 
 /**
- * Hand the conversation back to the host's own follow, lighting it up again
- * when it has been switched off.
- *
- * The host's follow is switched off by a scroll that looks like the reader
- * moving and does not reach the end: that scroll enters its 500 ms sampling
- * window, in which a resize follows nothing, and the settlement compares
- * position rather than intent — so the host's own focus(), a browser clamp
- * and any programmatic write all read as the reader having moved. The host
- * leaves one way back in: the back-to-end button it renders only while the
- * follow is off, whose click clears the window, lights the follow up and
- * reaches the end. Both ways are used, in this order:
- *
- *   walk    the position is walked to the end, so the text above the last
- *           line is pushed up smoothly. Any displacement makes the host's
- *           onScroll take the "reader reached the end" branch, which lights
- *           the follow up and clears the window.
- *   click   no displacement means no scroll event: the start of an execution,
- *           before the content has a scrollbar. Only the button works there.
- *
- * The looks in between are needed: the host often turns the follow off a
- * beat late, once its sampling window settles.
- *
+ * Hand the conversation back to the host's own follow, lighting it up again when it is off. The host turns its follow off on any write inside its 500 ms sampling window and leaves one way back: the back-to-end button it renders only while off. The position is walked to the end first, so the host's onScroll sees the reader reach it; the button click covers the start of an execution, when there is no scrollbar and no scroll event. The looks in between cover the host turning its follow off a beat late.
  * @param source - follow for the follow's own hand-back, fold after a door.
- * @param options - stillWanted is asked before every look (the reader can
- *     take over in between); onSettled runs once the round is over.
+ * @param options - stillWanted is asked before every look; onSettled runs once the round is over.
  */
 export function handBackFollow(source: ScrollSource, options?: { stillWanted?: () => boolean, onSettled?: () => void }) {
   const stillWanted = options?.stillWanted ?? (() => true)

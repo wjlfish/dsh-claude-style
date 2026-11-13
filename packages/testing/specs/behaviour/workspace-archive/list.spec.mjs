@@ -17,7 +17,9 @@ import { boxOf } from '../../fixtures/boxes.mjs'
  * stands it: the host's class names are assembled at runtime so this file
  * spells no mark (the same escape the engine uses). The page carries the
  * switches case's services, so the view store the segment drives is the
- * stand-in's own.
+ * stand-in's own. The root is the host's own box — a bounded column whose
+ * region clips what overflows — because the archived page's scroll port is the
+ * box the skin seats in it, and a root left to grow would hide that.
  */
 const HOST_CLASS = {
   root: '_root_n_' + '1',
@@ -56,7 +58,7 @@ async function setup(t, count) {
     sessions.refresh = () => Promise.resolve()
     const sidebar = document.createElement('div')
     sidebar.setAttribute('data-' + 'slot', 'sidebar')
-    sidebar.innerHTML = '<div class="' + classes.root + '">' +
+    sidebar.innerHTML = '<div class="' + classes.root + '" style="display:flex;flex-direction:column;height:320px;overflow:hidden">' +
       '<div class="' + classes.section + '" style="display:flex;align-items:center;justify-content:space-between;width:100%"><span class="' + classes.label + ' ' + classes.wide + '">Workspaces</span></div>' +
       '<div role="tree" class="' + classes.area + '"><div ' + 'data-' + 'row-key="w1" class="' + classes.project + '">project</div></div></div>'
     document.body.appendChild(sidebar)
@@ -84,24 +86,47 @@ async function pickActive(t) {
 
 /** How many archived rows the page carries (a fixture title names one row). */
 function rowCount(t) {
-  return t.page.locator('[title^="归档会话 "]').count()
+  return t.page.locator(`[${t.surface.attribute('workspace.archived-row')}]`).count()
 }
 
-/** One archived row, named by its fixture title. */
+/** One archived row, named by its fixture title: the row carries the title's own words in its tooltip anchor. */
 function row(t, title) {
-  return t.page.locator('[title="' + title + '"]')
+  return t.page.locator(`[${t.surface.attribute('workspace.archived-row')}]`)
+    .filter({ has: t.page.getByText(title, { exact: true }) })
 }
 
-/** The reader's scroll to the foot of the page. */
+/** The archived page's own list: the box the section's room seats, and its scroll port. */
+function archivedList(t) {
+  return t.surface('workspace.archived-list')
+}
+
+/** The reader's scroll to the foot of the archived list. */
 async function scrollToFoot(t) {
-  await t.page.evaluate(() => {
-    window.scrollTo(0, document.documentElement.scrollHeight)
+  await t.page.evaluate((listSelector) => {
+    const list = document.querySelector(listSelector)
+    list.scrollTop = list.scrollHeight
     window.dispatchEvent(new Event('scroll'))
-  })
+  }, archivedList(t))
   await t.settle()
 }
 
 export default spec({ page: 'switches' }, ({ test }) => {
+  test('the archived list is the section\'s scroll port', async (t) => {
+    await setup(t, 420)
+    await pickArchived(t)
+    const listSelector = archivedList(t)
+    t.expectThat.equal(await t.read.computed(listSelector, 'overflow-y'), 'auto', 'the list is the box the reader scrolls')
+    const standing = await t.read.overflow(listSelector)
+    t.expectThat.equal(standing.scrollHeight > standing.clientHeight, true, 'a page of rows runs past the section')
+    const listBox = await t.read.box(listSelector)
+    const rootBox = await t.read.box('.' + HOST_CLASS.root)
+    t.expectThat.equal(listBox.bottom <= rootBox.bottom + 0.5, true, 'the list ends at the section\'s own foot')
+    await scrollToFoot(t)
+    const moved = await t.page.evaluate((listSelector) => document.querySelector(listSelector).scrollTop, listSelector)
+    t.expectThat.equal(moved > 0, true, 'the reader reaches the rows below the section')
+    t.expectThat.equal(await rowCount(t), 60, 'the foot of the port asks for the next page')
+  })
+
   test('one page of thirty conversations stands first, and the foot appends the next', async (t) => {
     await setup(t, 420)
     await pickArchived(t)
@@ -143,6 +168,28 @@ export default spec({ page: 'switches' }, ({ test }) => {
     t.expectThat.visible(newest, 'the newest row is drawn')
     t.expectThat.visible(next, 'the next row is drawn')
     t.expectThat.equal(newest.top < next.top, true, 'the newest conversation stands above the next')
+  })
+
+  test('both row actions draw their own glyphs', async (t) => {
+    await setup(t, 3)
+    await pickArchived(t)
+    const drawn = await t.page.evaluate((rowAttribute) => {
+      const row = document.querySelector('[' + rowAttribute + ']')
+      return [...row.querySelectorAll('button')].map((button) => {
+        const svg = button.querySelector('svg')
+        return {
+          use: svg === null ? null : svg.querySelectorAll('use').length,
+          paths: svg === null ? 0 : svg.querySelectorAll('path').length,
+          stroke: svg === null ? null : svg.getAttribute('stroke'),
+          width: svg === null ? null : svg.getAttribute('width'),
+          height: svg === null ? null : svg.getAttribute('height'),
+          inkMatches: svg === null ? null : getComputedStyle(svg).color === getComputedStyle(button).color,
+        }
+      })
+    }, t.surface.attribute('workspace.archived-row'))
+    t.expectThat.equal(drawn.map((icon) => [icon.use, icon.paths > 0, icon.stroke, icon.width, icon.height, icon.inkMatches]), [[0, true, 'currentColor', '14', '14', true], [0, true, 'currentColor', '14', '14', true]], 'both row actions draw the skin\'s own glyph at 14px, stroked in the button\'s own ink, with no sprite to name')
+    const unarchive = await boxOf(row(t, '归档会话 1').locator('button').first())
+    t.expectThat.equal([unarchive.width, unarchive.height], [16, 16], 'the glyph stands in the host\'s 16px row-action box')
   })
 
   test('unarchive hands the conversation back to the host and its row leaves', async (t) => {
@@ -189,5 +236,7 @@ export default spec({ page: 'switches' }, ({ test }) => {
     t.expectThat.visible(hostTree, 'the host own tree is back where it stood')
     await pickArchived(t)
     t.expectThat.equal(await rowCount(t), 30, 'the archive starts over at its first page')
+    const top = await t.page.evaluate((listSelector) => document.querySelector(listSelector).scrollTop, archivedList(t))
+    t.expectThat.equal(top, 0, 'the page starts at the top of the archive')
   })
 })

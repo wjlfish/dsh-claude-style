@@ -1,7 +1,7 @@
 import { holdRelations, partRegions } from './parts-table'
 import type { HoldRelation, PartTable, PartsTableVocabulary } from './parts-table'
 import { localClassName, setAttributeIfChanged } from './dom'
-import { subscribeMutations } from './bus'
+import { batchAdditions, subscribeMutations } from './bus'
 
 /**
  * The marking pass behind the skin's part vocabulary (D3) and the holds a
@@ -245,16 +245,17 @@ function dropHolds(node: Element): boolean {
 }
 
 /**
- * Re-answer the relations of every held node inside one element. A holder's own
+ * Re-answer the relations of the held nodes inside one element. A holder's own
  * mark or a scope anchor can arrive after the node it holds: the host adds
  * `data-phase` to a box its transcript already stands in, and the box is the
- * holder the rule reads.
+ * holder the rule reads. The subtree answers for itself, so a small box's
+ * attribute change never walks the held set of the whole page.
  */
 function remarkInside(element: Element): boolean {
   let changed = false
   for (const state of HOLD_STATES) {
-    for (const [node, holders] of state.held) {
-      if (node === element || !element.contains(node)) continue
+    if (state.spec.held === '') continue
+    for (const node of element.querySelectorAll(state.spec.held)) {
       if (remark(state, node, holdersOf(state.spec, node))) changed = true
     }
   }
@@ -331,6 +332,10 @@ function lookupsBelow(element: Element, lookups: readonly RegionLookup[]): reado
  * the region for everything inside that node; the node itself keeps its own
  * parts, because what the region names is its box, not what the host mounts in
  * it.
+ *
+ * The holds the marks decide are re-answered once for the walked root
+ * (remarkInside), not once per changed element: that call walks the root's held
+ * nodes, so a call per element would multiply it by the mount's own size.
  */
 function walk(element: Element, inherited: readonly RegionLookup[], roots: Map<string, string> | null): boolean {
   let lookups = inherited
@@ -346,9 +351,6 @@ function walk(element: Element, inherited: readonly RegionLookup[], roots: Map<s
   const below = lookupsBelow(element, lookups)
   for (const child of element.children) if (walk(child, below, childRoots)) changed = true
   if (applyHolds(element)) changed = true
-  // The element's own mark decides whether its ancestors are a holder or a
-  // scope for the nodes under it, so a mark written here re-answers them.
-  if (changed) remarkInside(element)
   return changed
 }
 
@@ -360,7 +362,7 @@ function walk(element: Element, inherited: readonly RegionLookup[], roots: Map<s
  */
 export function markPartsWithin(root: Element) {
   const { lookups, roots } = contextAt(root)
-  walk(root, lookups, roots)
+  if (walk(root, lookups, roots)) remarkInside(root)
 }
 
 /** Take every part and hold mark off, for the teardown. */
@@ -402,7 +404,10 @@ export function installParts(next: PartsVocabulary, onMarked?: () => void) {
   HELD_SELECTOR = holdRelations(next).map((relation) => relation.held).join(', ')
   HOLD_ATTRIBUTES = new Set(holdRelations(next).flatMap((relation) => relation.attributes))
   const settle = () => { if (onMarked !== undefined) onMarked() }
-  if (walk(document.body, [], null)) settle()
+  if (walk(document.body, [], null)) {
+    remarkInside(document.body)
+    settle()
+  }
   const stop = subscribeMutations(document.body, {
     childList: true,
     subtree: true,
@@ -434,7 +439,10 @@ export function installParts(next: PartsVocabulary, onMarked?: () => void) {
           const moved = record.target.matches(ANCHOR_SELECTOR)
             ? walk(record.target, lookups, roots)
             : writeParts(record.target, lookups, roots)
-          if (moved) changed = true
+          if (moved) {
+            changed = true
+            remarkInside(record.target)
+          }
           if (applyHolds(record.target)) changed = true
           // A holder's own attribute — the host's phase mark, the skin's row
           // mark — can arrive under a held node that is already standing.
@@ -448,10 +456,14 @@ export function installParts(next: PartsVocabulary, onMarked?: () => void) {
       for (const node of record.removedNodes) {
         if (node instanceof Element && dropHolds(node)) changed = true
       }
-      for (const node of record.addedNodes) {
-        if (!(node instanceof Element)) continue
-        const { lookups, roots } = contextAt(node)
-        if (walk(node, lookups, roots)) changed = true
+    }
+    // The additions are gathered once for the batch (D40): the walk reads that
+    // set rather than walking the records it came from a second time.
+    for (const node of batchAdditions(records).added) {
+      const { lookups, roots } = contextAt(node)
+      if (walk(node, lookups, roots)) {
+        changed = true
+        remarkInside(node)
       }
     }
     if (changed) settle()

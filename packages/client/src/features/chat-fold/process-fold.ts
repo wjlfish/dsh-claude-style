@@ -1,58 +1,18 @@
 import { subscribeMutations } from '@dsh-claude-style/engine/bus'
 import { requestFrame } from '@dsh-claude-style/engine/frame'
-import { beginChatFoldToggle, endChatFoldToggle, isChatFoldToggle } from './fold-toggle'
+import { beginChatFoldToggle, endChatFoldToggle, isChatFoldToggle, subscribeFoldReaderEvents } from './fold-toggle'
 import { writeScroll } from '@dsh-claude-style/engine/scroll-owner'
 import { captureComposerCaret, composerComposing, focusKeepingComposerCaret } from '../../shared/composer-caret'
-import { CHAT_FLOW_SELECTOR, CHAT_TURN_ATTRIBUTE, CONVERSATION_SCROLL_SELECTOR, FOLLOW_THRESHOLD_PX, PROCESS_ACTIVITY_SELECTOR, PROCESS_BODY_SELECTOR, PROCESS_EXPANDED_MODE_ATTRIBUTE, PROCESS_GROUP_SELECTOR, RUNNING_STATE, SHIMMER_ATTRIBUTE, SHIMMER_LEGACY_ATTRIBUTE, SHIMMER_SELECTOR, STREAMING_ATTRIBUTE, ASSISTANT_STEP_KIND, FLOW_KIND_ATTRIBUTE, TURN_PROCESS_MEMBER_ATTRIBUTE } from '@dsh-claude-style/contracts/dom'
+import { CHAT_FLOW_SELECTOR, CHAT_TURN_ATTRIBUTE, CONVERSATION_SCROLL_SELECTOR, FOLLOW_THRESHOLD_PX, PROCESS_ACTIVITY_SELECTOR, PROCESS_BODY_SELECTOR, PROCESS_EXPANDED_MODE_ATTRIBUTE, PROCESS_GROUP_SELECTOR, RUNNING_STATE, SHIMMER_ATTRIBUTE, SHIMMER_SELECTOR, STREAMING_ATTRIBUTE, ASSISTANT_STEP_KIND, FLOW_KIND_ATTRIBUTE, TURN_PROCESS_MEMBER_ATTRIBUTE } from '@dsh-claude-style/contracts/dom'
 
-/**
- * A running process group opens by default and folds back once the piece of
- * work ends (the final answer is due).
- *
- * The host gathers a turn's adjacent process content — reasoning, tool calls,
- * commands, file writes — into one process group, opened and closed by its own
- * inline control. In the compact and standard tiers the body starts folded,
- * so the reader has to open it to see what the model is doing. The detailed
- * and fully-expanded tiers do not cap the body (it is open throughout), and
- * this module leaves them alone entirely — the test is the group root's
- * data-group-expanded-mode.
- *
- * A group's phase is read off the shimmer in its header: the host attaches
- * data-shimmer (older hosts write data-text-shimmer) only while the process
- * section is still running. Whether the body is open is its own
- * hidden attribute — the host hides searchably, setting hidden="until-found"
- * when folded and removing it entirely when open. Both are semantic
- * attributes. Command cards inside the group use the shimmer too, so the
- * phase is only ever asked of the header.
- *
- * The group still belongs to the reader: a reader who touched a group in a
- * phase keeps it for that phase. The hand-over is per phase — folding a group
- * while its process still runs means he does not want to watch it right now,
- * and folding it back when the section ends would mean nothing.
- *
- * A closed group folds once something takes its place: a later process group
- * of the same turn, or the turn's answer. Only the turn's newest group stays
- * open while the model works. A turn the reader stopped has no answer row, and
- * the host folds its groups itself at the end: the skin opens the last one
- * again, so the work up to the stop stays on the page.
- */
-/** The piece of work is over and the final answer is due. */
+/* Host header shimmer marks a running group; hidden="until-found" marks its folded body.
+   Reader overrides last for the current phase. Expanded tiers are left untouched, and a stopped
+   turn's last group reopens because it has no answer to replace the work. */
 const PROCESS_CLOSED = 'closed'
-/**
- * The answer row a turn ends with: the host counts every row of a running turn
- * into its process, and once the turn ends, every row but the answer. A stopped
- * turn never gets one. The answer mark the host writes is no help here: it is
- * there only while the turn stands folded, and under the next-input collapse
- * timing the latest turn stays open after it ends.
- */
+/* The host's answer mark is absent while the latest turn stays open, so identify the answer by
+   its assistant-step kind and exclusion from process members. Stopped turns have no answer row. */
 const ANSWER_ROW_SELECTOR = `[${FLOW_KIND_ATTRIBUTE}="${ASSISTANT_STEP_KIND}"]:not([${TURN_PROCESS_MEMBER_ATTRIBUTE}])`
 
-/**
- * Watch every process group on the page and bring each to what its phase
- * asks for.
- *
- * @returns teardown: the observer and the two listeners go away.
- */
 export function createProcessFold() {
   /** The phase a group was in when the reader last touched it. */
   const touchedIn = new WeakMap<Element, string>()
@@ -62,35 +22,41 @@ export function createProcessFold() {
   let scanQueued = false
   /** The groups this batch of mutations touched. */
   const touchedGroups = new Set<Element>()
-
   /**
-   * Queue the groups of the turn a node belongs to.
-   *
-   * A stream ending and an answer row arriving are the moments a turn's groups
-   * settle, and neither change happens inside the group itself. The turn comes
-   * off the nearest row carrying it, so the walk stays inside that turn.
+   * Each flow's process groups by turn, for the batch being handled: one whole
+   * column query per flow replaces one per touched node, which on a session
+   * mount is one per group.
    */
+  let turnGroups: Map<Element, Map<string, Element[]>> | null = null
+
+  /** Stream and answer changes occur outside the group, so settle all groups in that turn. */
   const settleTurnOf = (node: Element) => {
     const flow = node.closest(CHAT_FLOW_SELECTOR)
     const turn = node.closest(`[${CHAT_TURN_ATTRIBUTE}]`)?.getAttribute(CHAT_TURN_ATTRIBUTE) ?? null
     if (flow === null || turn === null) return
-    for (const group of flow.querySelectorAll(`${PROCESS_GROUP_SELECTOR}[${CHAT_TURN_ATTRIBUTE}="${CSS.escape(turn)}"]`)) touchedGroups.add(group)
+    turnGroups ??= new Map()
+    let byTurn = turnGroups.get(flow)
+    if (byTurn === undefined) {
+      byTurn = new Map()
+      // Document order: a turn's groups keep the order the host wrote them in.
+      for (const group of flow.querySelectorAll(PROCESS_GROUP_SELECTOR)) {
+        const key = group.getAttribute(CHAT_TURN_ATTRIBUTE) ?? ''
+        const list = byTurn.get(key)
+        if (list === undefined) byTurn.set(key, [group])
+        else list.push(group)
+      }
+      turnGroups.set(flow, byTurn)
+    }
+    const groups = byTurn.get(turn)
+    if (groups === undefined) return
+    for (const group of groups) touchedGroups.add(group)
   }
 
-  /**
-   * Bring these groups to what their current phase asks for.
-   * @param groups - this batch of groups; some may already be unattached.
-   */
+
   const syncGroups = (groups: Iterable<Element>) => {
     /** The turns carrying an answer row, per flow, read once for this scan. */
     const answered = new Map<Element, Set<string>>()
-    /**
-     * Whether the turn this group belongs to ends with an answer row.
-     *
-     * A stopped turn gets none, and folding its process away leaves the page
-     * with nothing below it: the reader was watching that work, and the stop is
-     * what ended it, not an answer taking its place.
-     */
+    /** A stopped turn has no answer, so its last process remains visible. */
     const showsAnswer = (group: Element, flow: Element) => {
       const turn = group.getAttribute(CHAT_TURN_ATTRIBUTE)
       if (turn === null) return true
@@ -201,11 +167,7 @@ export function createProcessFold() {
     }
   }
 
-  /**
-   * Settle every group already on the page once, in the next frame: the first
-   * scan presses group headers, and a session switch mounts whole flows in one
-   * task, so the press waits until that task has painted.
-   */
+  /** Wait for the mounting task to paint before pressing group headers. */
   const syncEveryGroup = () => {
     syncGroups(document.querySelectorAll(PROCESS_GROUP_SELECTOR))
   }
@@ -224,6 +186,9 @@ export function createProcessFold() {
   // Streaming changes the DOM far faster than this needs to run, so one scan
   // a frame at most.
   const onRecords = (records: MutationRecord[]) => {
+    // One batch, one reading of each flow's groups: the cache below lives no
+    // longer than this call.
+    turnGroups = null
     const known = touchedGroups.size
     for (const record of records) {
       if (record.type === 'attributes' && record.attributeName === STREAMING_ATTRIBUTE) {
@@ -256,6 +221,7 @@ export function createProcessFold() {
         if (answer !== null) settleTurnOf(answer)
       }
     }
+    turnGroups = null
     // A change with no process group in it (the sidebar, the plugin page) is
     // not worth a frame.
     if (touchedGroups.size === known) return
@@ -271,11 +237,7 @@ export function createProcessFold() {
       },
     })
   }
-  /**
-   * Settle everything once a composition has landed: a scan that ran while one
-   * was in flight left its groups alone (syncGroups), and the streaming may
-   * have stopped before another batch arrived to ask again.
-   */
+  /** Composition may have suppressed the final scan; settle again when it ends. */
   const onCompositionEnd = () => {
     requestFrame({ write() { syncEveryGroup() } })
   }
@@ -285,17 +247,13 @@ export function createProcessFold() {
     attributes: true,
     // The group root's expand-mode attribute is in range too: switching tiers
     // adds or removes it, and that batch has to be scanned again.
-    attributeFilter: [SHIMMER_ATTRIBUTE, SHIMMER_LEGACY_ATTRIBUTE, 'hidden', PROCESS_EXPANDED_MODE_ATTRIBUTE, STREAMING_ATTRIBUTE, TURN_PROCESS_MEMBER_ATTRIBUTE],
+    attributeFilter: [SHIMMER_ATTRIBUTE, 'hidden', PROCESS_EXPANDED_MODE_ATTRIBUTE, STREAMING_ATTRIBUTE, TURN_PROCESS_MEMBER_ATTRIBUTE],
   }, onRecords)
-  document.addEventListener('click', rememberReaderTouched, true)
-  document.addEventListener('keydown', rememberReaderTouched, true)
-  document.addEventListener('compositionend', onCompositionEnd, true)
+  const stopReaderEvents = subscribeFoldReaderEvents(rememberReaderTouched, onCompositionEnd)
   requestFrame({ write() { syncEveryGroup() } })
 
   return () => {
     stopMutations()
-    document.removeEventListener('click', rememberReaderTouched, true)
-    document.removeEventListener('keydown', rememberReaderTouched, true)
-    document.removeEventListener('compositionend', onCompositionEnd, true)
+    stopReaderEvents()
   }
 }

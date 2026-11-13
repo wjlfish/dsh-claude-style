@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
  * dsh-web.mjs — a scratch DSH web instance with this checkout's plugin installed,
- * and a browser page on it (D77).
+ * and a browser page on it (D92).
  *
  * The end-to-end lane needs a real host: the smoke's stand-in page reproduces
  * the structure its author knows, while the timing and ordering the skin leans
  * on only exist in the assembled client. This tool owns that host:
  *
- *   start()   a scratch `$DSH_HOME` under .debug/, the plugin linked into its
+ *   start()   a scratch `$DSH_HOME` under .debug/runs/e2e/, the plugin linked into its
  *             web profile once, `dsh --profile web --port 0 --no-open` booted,
  *             and the URL it prints — which carries the launch token — handed
  *             back. The token must be exchanged by a browser: a bare fetch of
@@ -25,12 +25,13 @@ import { spawn, spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
+import { runsPath } from '../../scripts/shared/debug-paths.mjs'
 import { newContextOn, openBrowser } from './browser.mjs'
 import { argOf } from './cli-args.mjs'
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..')
 /** The scratch host's home: build output, so it lives with the other debug artifacts. */
-const DEFAULT_HOME = path.join(ROOT, '.debug', 'e2e', 'home')
+const DEFAULT_HOME = runsPath(ROOT, 'e2e', 'home')
 /** Preloaded into the host so it ends with the process that started it. */
 const LIFELINE = path.join(import.meta.dirname, 'lifeline.mjs')
 /** A console line the GPU process writes into the page on a runner without one. */
@@ -122,7 +123,7 @@ function provisionHome(home) {
  * @param options.port - the port; 0 lets the OS pick one.
  * @param options.patch - loader patch entries (YAML text) written into a `--patch`
  *     overlay before boot: how a lane points the host's model adapter at the
- *     scripted service (packages/testing/mock-llm.mjs, D77).
+ *     scripted service (packages/testing/mock-llm.mjs, D92).
  * @param options.args - extra arguments for the web app's own command line
  *     (`--trusted-host <name>`, which a page under a non-loopback name needs).
  * @param options.plugins - other plugins' package specs (`name@version`) added
@@ -369,8 +370,12 @@ const pressOverlay = (page, tried) => page.evaluate((spent) => {
  */
 async function dismissOverlays(page, options = {}) {
   const limit = options.limit ?? 6
-  const quietMs = options.quietMs ?? 1000
-  const settleMs = options.settleMs ?? 8000
+  // The shell raises its first-run overlays on its own schedule: on DSH 0.2.2-rc.2 the
+  // preview notice arrives more than a second after the skin takes the page, so a
+  // quiet window shorter than that settles before it and the later click meets the
+  // mask. The window waits past the shell's own startup rather than a frame count.
+  const quietMs = options.quietMs ?? 3000
+  const settleMs = options.settleMs ?? 15000
   // The host's own drawer sidebar is a dialog it mounts whether it stands open
   // or not, so it is left out of both the read and the verdict.
   const byText = () => page.locator('[role="dialog"]:not([data-shortcut-modal="sidebar"]):visible')

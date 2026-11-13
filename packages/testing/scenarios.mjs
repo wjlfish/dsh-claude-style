@@ -1,5 +1,5 @@
 /**
- * scenarios.mjs — the end-to-end lane's scenario table (D77). The runner
+ * scenarios.mjs — the end-to-end lane's scenario table (D92). The runner
  * (packages/testing/e2e.mjs) boots an instance per scenario, sends its prompt
  * and calls its hooks; a scenario carrying its own reader is a module beside
  * this one (a `*Scenario` export), registered in the table below.
@@ -15,25 +15,34 @@
  */
 import path from 'node:path'
 import { HOST, SKIN, readFlow, check, observe } from './lane.mjs'
-import { recordProbes } from './contract-probe.mjs'
+import { recordProbes } from './scenarios/contract-probe.mjs'
 import { sendPrompt, waitForTurn } from './prompt.mjs'
-import { importanceScenario } from './importance.mjs'
-import { readerScrollScenario } from './reader-scroll.mjs'
-import { doorPinScenario } from './door-pin.mjs'
-import { streamPaceScenario } from './stream-pace.mjs'
-import { motionScenario } from './motion.mjs'
-import { processSummaryScenario } from './process-summary.mjs'
-import { fileMergeScenario } from './file-merge.mjs'
-import { reasoningStreamScenario } from './reasoning-stream.mjs'
-import { waitLineScenario } from './wait-line.mjs'
-import { washLineScenario } from './wash-line.mjs'
-import { longSessionScenario } from './long-session.mjs'
-import { statsScenarios } from './stats-position.mjs'
-import { sidebarRailScenario } from './sidebar-rail.mjs'
-import { sidebarPeekScenario } from './sidebar-peek.mjs'
-import { remoteSettingsScenario } from './remote-settings.mjs'
-import { customBrandScenario } from './custom-brand.mjs'
-import { dsBotScenario } from './ds-bot.mjs'
+import { importanceScenario } from './scenarios/importance.mjs'
+import { readerScrollScenario } from './scenarios/reader-scroll.mjs'
+import { doorPinScenario } from './scenarios/door-pin.mjs'
+import { streamPaceScenario } from './scenarios/stream-pace.mjs'
+import { streamJitterScenario } from './scenarios/stream-jitter.mjs'
+import { motionScenario } from './scenarios/motion.mjs'
+import { processSummaryScenario } from './scenarios/process-summary.mjs'
+import { fileMergeScenario } from './scenarios/file-merge.mjs'
+import { reasoningContinuousScenario, reasoningStreamScenario } from './scenarios/reasoning-stream.mjs'
+import { messageAnswerActionsScenario } from './scenarios/message-answer-actions.mjs'
+import { messageActionsScenario } from './scenarios/message-actions.mjs'
+import { systemTypographyScenario } from './scenarios/system-typography.mjs'
+import { mobileHomeScenario } from './scenarios/mobile-home.mjs'
+import { composerViewportScenario } from './scenarios/composer-viewport.mjs'
+import { waitLineScenario } from './scenarios/wait-line.mjs'
+import { washLineScenario } from './scenarios/wash-line.mjs'
+import { longSessionScenario } from './scenarios/long-session.mjs'
+import { statsScenarios } from './scenarios/stats-position.mjs'
+import { sidebarRailScenario } from './scenarios/sidebar-rail.mjs'
+import { sidebarPeekScenario } from './scenarios/sidebar-peek.mjs'
+import { remoteSettingsScenario } from './scenarios/remote-settings.mjs'
+import { usernameCompositionScenario } from './scenarios/username-composition.mjs'
+import { usernameImeScenario } from './scenarios/username-ime.mjs'
+import { customBrandScenario } from './scenarios/custom-brand.mjs'
+import { dsBotScenario } from './scenarios/ds-bot.mjs'
+import { sessionPanelScenario } from './scenarios/session-panel.mjs'
 import { CANVAS } from './shoot.mjs'
 import { sanitizePage } from '../../scripts/shared/privacy.mjs'
 import { bound } from './bounds.mjs'
@@ -156,6 +165,19 @@ async function handoverFrames(context) {
 
 /** The scenarios: each boots its own instance, sends its prompt, and asserts. */
 const SCENARIOS = {
+  /**
+   * 读者消息下面那行控件（features/message-actions）：撤回与编辑插在宿主自己的
+   * 控件行里，整行只在悬停时显现；撤回从消息前一个事件分岔并把原文放回新会话的
+   * 输入框，编辑把改过的文字在新会话里直接发出，原会话原样留着。
+   *
+   * 这一场按读者看见的样子选：控件行是宿主的 `[data-clock]`，皮肤的两个按钮就
+   * 是它末尾的两个按钮（宿主先画时间与复制），编辑框是那一行里唯一的文本域。
+   * 首屏那一步顺带核对首页统计数值的提示：那也是宿主自己的 Tooltip，没有浏览器
+   * 原生的 `title`。
+   */
+  messageAnswerActions: messageAnswerActionsScenario({ check }),
+  messageActions: messageActionsScenario({ check }),
+  systemTypography: systemTypographyScenario(),
   /** A scripted answer: the reader's message, the thought, the markdown. */
   conversation: {
     script: 'greeting',
@@ -181,6 +203,8 @@ const SCENARIOS = {
    * model name instead of out of the card: nothing leaves the card and the row
    * does not scroll sideways.
    */
+  mobileHome: mobileHomeScenario(),
+  composerViewport: composerViewportScenario(),
   narrow: {
     script: 'greeting',
     prompt: 'hello there',
@@ -365,7 +389,7 @@ const SCENARIOS = {
       const live = sampled.filter((frame) => frame.running !== null && frame.running !== undefined && frame.following && overflowing(frame))
       const tops = live.map((frame) => frame.running)
       const spread = tops.length === 0 ? 0 : Math.max(...tops) - Math.min(...tops)
-      // The skin writes no position while the answer streams (D71), so nothing reads to the host as a
+      // The skin writes no position while the answer streams (D85), so nothing reads to the host as a
       // reader leaving the tail: its own mark stays on in every frame the live turn's row is pinned in.
       const dropped = sampled.filter((frame) => frame.running !== null && frame.running !== undefined && frame.following === false && overflowing(frame))
       return [
@@ -389,8 +413,12 @@ const SCENARIOS = {
   readerScroll: readerScrollScenario({ check }),
   /** A door rolling at the tail mid-stream leaves the status line pinned where it stood (door-pin.mjs, D40). */
   doorPin: doorPinScenario({ check }),
-  /** An answer arriving faster than a slide carries it: the composer stands still and the column stays on the pin (stream-pace.mjs, D71). */
+  /** An answer arriving faster than a slide carries it: the composer stands still and the column stays on the pin (stream-pace.mjs, D85). */
   streamPace: streamPaceScenario({ check }),
+  /** A provider's own pace: the column the reader watches never moves down between two frames (stream-jitter.mjs, D85). */
+  streamJitter: streamJitterScenario({ check }),
+  streamJitterFooter: streamJitterScenario({ check }, 'footer'),
+  streamJitterInline: streamJitterScenario({ check }, 'inline'),
   /** The transitions.dev surfaces where they move: greeting, panel, switch, tab, badge, menu (motion.mjs, D9). */
   motion: motionScenario({ check }),
   /** The send flight: the stand-in takes off, the row lands, the words stay put. */
@@ -532,7 +560,7 @@ const SCENARIOS = {
       const results = notes.contract
       const byState = (state) => results.filter((result) => result.state === state)
       // A computed reading is the host's own exact output; a difference from the
-      // snapshot is printed as an observation and blocks nothing (D77).
+      // snapshot is printed as an observation and blocks nothing (D92).
       const failed = results.filter((result) => !result.ok && result.observation !== true)
       const differing = results.filter((result) => !result.ok && result.observation === true)
       const unchecked = results.filter((result) => result.observed === 'reported, not checked here')
@@ -561,20 +589,31 @@ const SCENARIOS = {
   fileMerge: fileMergeScenario({ check }),
   /** The reasoning's streamed window while the model thinks (reasoning-stream.mjs, D74). */
   reasoningStream: reasoningStreamScenario({ check }),
+  reasoningContinuous: reasoningContinuousScenario({ check }),
   /** The waiting line's own words: the model's clause and the file a call works on (wait-line.mjs, D74). */
   waitLine: waitLineScenario({ check }),
   /** The waiting line's second paint, chosen in the settings (wash-line.mjs, D40). */
   washLine: washLineScenario({ check }),
   /** What a frame costs in a transcript that is already long (long-session.mjs, D40). */
   longSession: longSessionScenario({ check }),
-  /** Every `!important` the skin writes is needed on the real page (packages/testing/importance.mjs, D9). */
+  /** Every `!important` the skin writes is needed on the real page (packages/testing/scenarios/importance.mjs, D9). */
   importance: importanceScenario({ check, observe, sendPrompt, waitForTurn, host: HOST }),
-  /** A page under a non-loopback name reads and writes the host's settings beside the loopback one (packages/testing/remote-settings.mjs, D75). */
+  /** A page under a non-loopback name reads and writes the host's settings beside the loopback one (packages/testing/scenarios/remote-settings.mjs, D75). */
   remoteSettings: remoteSettingsScenario({ check }),
-  /** The reader's own brand images through the host half's routes and on the real shell (packages/testing/custom-brand.mjs, D30). */
+  /** Slow IME composition and cancellation in the real host's username field. */
+  usernameComposition: usernameCompositionScenario({ check }),
+  /** The username keeps the reader's text while an input method composes it across a save (packages/testing/scenarios/username-ime.mjs, D92). */
+  usernameIme: usernameImeScenario({ check }),
+  /** The reader's own brand images through the host half's routes and on the real shell (packages/testing/scenarios/custom-brand.mjs, D30). */
   customBrand: customBrandScenario({ check }),
-  /** The Chat / Code switch beside ds-bot's published browser half (packages/testing/ds-bot.mjs, D74). */
+  /** The Chat / Code switch beside ds-bot's published browser half (packages/testing/scenarios/ds-bot.mjs, D74). */
   dsBot: dsBotScenario({ check }),
+  /**
+   * The session overview in the right column (packages/testing/scenarios/session-panel.mjs,
+   * D94): its five sections on a blank and a worked session, the two-row folding,
+   * the view switch on the title's line, and the column's opening width.
+   */
+  sessionPanel: sessionPanelScenario({ check }),
   /** Both palettes captured to the run's out directory and swept for personal data. */
   shots: {
     script: 'greeting',

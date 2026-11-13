@@ -83,6 +83,32 @@ body[data-dsh-claude-style][data-dsh-claude-footer-takeover] [data-dsh-claude-pa
   display: none !important;
 }
 
+/* A plugin's block — a section carrying its own heading and rows — is the
+   plugin's layout for the sidebar, not a control the account menu can stand in
+   for. It keeps its place above the account row, so the action box the takeover
+   zeroes for its gathered entries takes its own size back while it holds one;
+   the hold is kept by the pass (packages/engine/src/parts-table.ts). */
+body[data-dsh-claude-style][data-dsh-claude-footer-takeover] [data-dsh-claude-part~="foot-area"] > [data-dsh-claude-part~="footer-actions"][data-dsh-claude-holds~="footer-block"] {
+  width: 100%;
+  height: auto;
+  font-size: initial;
+  line-height: normal;
+}
+body[data-dsh-claude-style][data-dsh-claude-footer-takeover] [data-dsh-claude-part~="foot-area"] [data-dsh-claude-footer-block] {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+/* The rail is one icon wide: a block has no room there, and the account menu
+   carries the copy the mirror keeps for it. */
+body[data-dsh-claude-style][data-dsh-claude-footer-takeover] [data-dsh-claude-part~="sidebar-root"][data-dsh-claude-part~="sidebar-collapsed"] [data-dsh-claude-footer-block] {
+  display: none;
+}
+/* While the sidebar stands wide the block speaks for itself, so its copy in the
+   account menu stands down: one control appears in one place. */
+body[data-dsh-claude-style]:not([data-dsh-claude-holds~="sidebar-rail"]) .dsh-claude-popover-embed.dsh-claude-popover-embed-section {
+  display: none;
+}
+
 /* The footer collapse uses zero text metrics to suppress stray in-flow content.
    Restore neutral metrics at an overlay boundary so dialog text can lay out
    with the plugin's own font rules (the Remote login heading and QR caption). */
@@ -254,25 +280,17 @@ body[data-dsh-claude-style] [data-dsh-claude-part~="sidebar-root"][data-dsh-clau
 /* Embedded footer widgets: display-only plugin entries (progress bars,
    status panels — the cost-meter balance/quota stack is the known case)
    cannot collapse into a text menu item, so overrides.js embeds a live clone
-   of the entry into the popover. The embed sits above the action items with
-   a hairline separator; the cloned plugin markup keeps its own classes, so
-   the plugin's own stylesheet styles the content. */
+   of the entry into the popover. The cloned plugin markup keeps its own
+   classes, so the plugin's own stylesheet styles the content. The inset is
+   the same on all four sides: an entry that draws its own border and radius
+   reads as a box inside a box once the wrapper leaves a deeper strip at the
+   bottom. */
 body[data-dsh-claude-style] .dsh-claude-popover-embed {
-  padding: 2px 2px 6px;
+  padding: 2px;
   margin-bottom: 4px;
-  border-bottom: 0.5px solid var(--dsh-claude-divider, var(--dsw-alias-border-l2, #dedede));
   border-radius: 7px;
 }
 
 body[data-dsh-claude-style] .dsh-claude-popover-embed[data-clickable] {
   cursor: pointer;
 }
-
-body[data-dsh-claude-style] .dsh-claude-popover-embed[data-clickable]:hover {
-  background: var(--dsh-claude-hover-bg, rgba(0, 0, 0, 0.08));
-}
-
-body[data-dsh-claude-style]:not([data-ds-dark-theme]) .dsh-claude-popover-embed {
-  border-bottom-color: var(--dsw-alias-border-l1);
-}
-

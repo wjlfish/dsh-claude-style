@@ -3,6 +3,7 @@ import type { HostContext } from './host'
 import { observeSize, subscribeMutations } from './bus'
 import { requestFrame } from './frame'
 import { closestFrom } from './dom'
+import { PHASE_ATTRIBUTE } from '@dsh-claude-style/contracts/dom'
 import { skin } from './skin'
 
 /**
@@ -330,6 +331,7 @@ export function installScheduler<Name extends string>(ctx: HostContext, ui: Sche
 
   /** Chat streaming mutates the tree constantly; coalesce to one pass a frame. */
   function schedule(options?: { contentOnly?: boolean }) {
+    if (stopped) return
     if (scheduled) {
       // A reason that reads the whole page joins the pass already queued.
       if (options?.contentOnly !== true) passContentOnly = false
@@ -357,6 +359,14 @@ export function installScheduler<Name extends string>(ctx: HostContext, ui: Sche
         scheduled = false
         cancelPass = null
         if (stopped) return
+        // A stand-in page counts scheduler passes, not frames: a feature that
+        // paints its own frames (the effort field's canvas) asks the page for a
+        // frame every tick, and the probe's settle rule must still see the skin
+        // as quiet once the passes stop (D92).
+        if ((window as unknown as { __dshStandIn?: unknown }).__dshStandIn === true) {
+          const counts = window as unknown as { __dshClaudePasses?: number }
+          counts.__dshClaudePasses = (counts.__dshClaudePasses ?? 0) + 1
+        }
         const content = passContentOnly
         passContentOnly = false
         if (!measured) {
@@ -402,9 +412,11 @@ export function installScheduler<Name extends string>(ctx: HostContext, ui: Sche
   schedule()
 
   // Copy that follows the clock (the hero greeting rolls over on the hour) has
-  // no DOM change to wake a pass. The syncs skip identical writes, so this
-  // cannot feed the observer.
-  const clockTimer = setInterval(() => schedule(), 60000)
+  // no DOM change to wake a pass; skip background tabs and active conversations.
+  const clockTimer = setInterval(() => {
+    if (document.hidden) return
+    schedule()
+  }, 60000)
 
   return () => {
     // A pass already requested would run against torn-down features and build

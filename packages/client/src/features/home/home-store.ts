@@ -1,7 +1,8 @@
-import { USAGE_ROUTE } from '../../constants'
+import { HOME_SESSION_SCOPE_WORKSPACE, USAGE_ROUTE } from '../../constants'
+import { readPrefs } from '../../core/prefs'
 import { pad2 } from '../../shared/format'
 import { notifyAll } from '@dsh-claude-style/engine/notify'
-import { hostRemoteSession } from '@dsh-claude-style/engine/host'
+import { currentSessionId, hostRemoteSession, hostSessions, hostWorkspaces } from '@dsh-claude-style/engine/host'
 import type { HostContext } from '@dsh-claude-style/engine/host'
 import type { HostRemoteListAnswer, HostSessionRow } from '@dsh-claude-style/contracts/services'
 import type { UsageAnswer, UsageReport } from '@dsh-claude-style/contracts/usage'
@@ -42,12 +43,7 @@ export interface ListSummary {
 
 /** Where the roll-up lands while the host half is still folding. */
 export const HOME_POLL_MS = 800
-/**
- * Polls in a row a cold fold may go unanswered before the panel settles on what
- * it has: the fold reads every changed session log, and a large history on a
- * slow disk takes minutes, so the panel stops waiting long after the first
- * numbers could have arrived. The next read starts over once they do.
- */
+/** Stop waiting after this many cold-fold polls; the next read starts over. */
 export const HOME_POLL_MAX = 180
 
 /** A local calendar day, matching the host half's day keys. */
@@ -55,25 +51,6 @@ export function homeDayKey(date: Date) {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
 }
 
-/**
- * The roll-up store: the route's answer, the list's answer, and the reads that
- * keep the first one current.
- *
- * The route (`USAGE_ROUTE`) is the panel's first source: it folds the local
- * session logs (or reads the cost-meter ledger) and answers immediately with
- * whatever it already knows. A cold answer carries `computing`, and the panel
- * keeps its skeleton up and polls until the value lands — so the first paint
- * never waits on the aggregation, and a value that has not arrived yet is
- * never drawn as a zero.
- *
- * The session list is the second source. Every listed session carries the
- * host's token-usage and model-selection projections, so it answers even when
- * the route cannot (an older host half, or a failed fold). It is coarser —
- * one total per session, bucketed onto that session's last-activity day — so
- * the panel names the source it drew from.
- *
- * @returns accessors, the loads, and a stop that ends the reads and listeners.
- */
 /** The usage roll-up's store face: one source for the dashboard panel and the corner card. */
 export interface HomeUsage {
   state(): HomeUsageState
@@ -87,6 +64,10 @@ export interface HomeUsage {
   stop(): void
 }
 
+/**
+ * The usage roll-up store. The route answers immediately while a cold fold polls;
+ * the session list is a coarser fallback, so the panel names its source.
+ */
 export function createHomeUsage(ctx: HostContext): HomeUsage {
   /** What the panel draws: the last answer, whether more is coming, and why not. */
   const usage: HomeUsageState = { value: null, computing: false, error: null, loading: false, answeredAt: null }
@@ -97,6 +78,36 @@ export function createHomeUsage(ctx: HostContext): HomeUsage {
   /** Polls this read has made; reset by each ask (loadUsage). */
   let polls = 0
   let disposed = false
+  let requestSerial = 0
+  let target = { scope: readPrefs().homeSessionScope, workspace: '' }
+
+  /** The current blank's Workspace, falling back to the most recently active one. */
+  function currentWorkspaceId() {
+    const service = hostWorkspaces(ctx)
+    if (service === null) return ''
+    const snapshot = service.list.getSnapshot()
+    if (!Array.isArray(snapshot.items)) return ''
+    const current = currentSessionId(ctx)
+    if (current !== null) {
+      const owned = snapshot.items.find((workspace) => workspace.sessionIds.includes(current))
+      if (owned !== undefined) return owned.workspaceId
+    }
+    const sessions = hostSessions(ctx)?.list.getSnapshot()
+    const archived = new Set(snapshot.archivedSessionIds)
+    let newest = -1
+    let selected = ''
+    for (const workspace of snapshot.items) {
+      for (const id of workspace.sessionIds) {
+        if (archived.has(id)) continue
+        const updatedAt = sessions?.byId[id]?.updatedAt ?? 0
+        if (updatedAt > newest) {
+          newest = updatedAt
+          selected = workspace.workspaceId
+        }
+      }
+    }
+    return selected
+  }
 
   function emit() {
     notifyAll(listeners)
@@ -118,14 +129,29 @@ export function createHomeUsage(ctx: HostContext): HomeUsage {
   }
 
   /**
-   * One read of the roll-up. The answer's `computing` schedules the next poll,
-   * so the panel fills in as soon as the host half has the numbers; a read whose
-   * polls run out leaves the panel on what it has, and the next ask starts the
+   * Read the roll-up once. `computing` schedules a poll; exhausted polls leave the
+   * panel on its current data until the next ask. The next ask starts the
    * count over.
    *
    * @param force - read even though numbers are on show and nothing is folding.
    */
+  function syncTarget() {
+    const scope = readPrefs().homeSessionScope
+    const workspace = scope === HOME_SESSION_SCOPE_WORKSPACE ? currentWorkspaceId() : ''
+    if (target.scope === scope && target.workspace === workspace) return
+    target = { scope, workspace }
+    requestSerial += 1
+    stopPolling()
+    usage.value = null
+    usage.computing = false
+    usage.error = null
+    usage.loading = false
+    usage.answeredAt = null
+    emit()
+  }
+
   function loadUsage(force?: boolean) {
+    syncTarget()
     if (disposed || usage.loading) return
     if (!force && usage.value !== null && !usage.computing) return
     // Each ask is its own count: a fold behind a cold start may take minutes,
@@ -137,10 +163,13 @@ export function createHomeUsage(ctx: HostContext): HomeUsage {
   /** One request to the route, and the poll its answer asks for while the host half is folding. */
   function read() {
     usage.loading = true
-    const request = fetch(USAGE_ROUTE, { credentials: 'same-origin', headers: { accept: 'application/json' } })
+    const serial = requestSerial
+    const params = new URLSearchParams({ scope: target.scope })
+    if (target.workspace !== '') params.set('workspace', target.workspace)
+    const request = fetch(USAGE_ROUTE + '?' + params.toString(), { credentials: 'same-origin', headers: { accept: 'application/json' } })
     request.then(response => response !== null && response.ok === true ? response.json() : null).then((body: UsageAnswer | null) => {
+      if (disposed || serial !== requestSerial) return
       usage.loading = false
-      if (disposed) return
       // A route that refused still answered: the next ask waits out the same
       // period instead of retrying on every pass.
       usage.answeredAt = Date.now()
@@ -164,25 +193,18 @@ export function createHomeUsage(ctx: HostContext): HomeUsage {
       }
     // A failed usage fetch is the panel's "unavailable" state, not an exception: the panel renders without the numbers (D12).
     }).catch(() => {
+      if (disposed || serial !== requestSerial) return
       usage.loading = false
-      if (disposed) return
       usage.answeredAt = Date.now()
       usage.error = 'unavailable'
       emit()
     })
   }
 
-  /**
-   * Read the roll-up again if the numbers on show have aged past the wake or
-   * the period (usage-refresh.ts), and answer whether this page asked.
-   *
-   * A read of this page's own counts as in flight while it crosses or while it
-   * has a poll pending: that poll is what carries the numbers in. A read whose
-   * polls have run out leaves nothing pending, so the next period asks again
-   * rather than the panel going quiet for good.
-   *
-   * @param reason - `'tick'` for a panel standing on the page, `'wake'` for one the reader came back to.
-   */
+/**
+ * Refresh stale figures for a tick or wake (usage-refresh.ts). A pending poll
+ * keeps the read in flight; exhausted polls let the next period ask again.
+ */
   function refreshUsage(reason: HomeRefreshReason) {
     if (disposed) return false
     const due = homeRefreshDue(Date.now(), { answeredAt: usage.answeredAt, busy: usage.loading || pollTimer !== null }, reason)
@@ -192,18 +214,8 @@ export function createHomeUsage(ctx: HostContext): HomeUsage {
   }
 
   /**
-   * The session list's roll-up.
-   *
-   * The host's list rows carry their own projection block
-   * (`projections.values`): `tokenUsage` with its four disjoint buckets,
-   * `modelSelection` with the route the session last used, and
-   * `sessionListMetadata` with the blank flag and the last prompt time.
-   * Summing them gives the panel a second, cheaper source — and the model
-   * list's fallback when the roll-up route cannot answer.
-   *
-   * A session's whole total is bucketed onto its own last-activity day: the
-   * list has no per-day split, so this is coarser than the host half's fold,
-   * which is exactly why the panel names the source it drew from.
+   * Sum the list rows' usage projections as the fallback source. A session's
+   * whole total lands on its last-activity day because the list has no split.
    */
   function summarizeSessionList(rows: HostSessionRow[]): ListSummary {
     let tokens = 0
@@ -297,6 +309,7 @@ export function createHomeUsage(ctx: HostContext): HomeUsage {
     loadList: loadSessionSummary,
     stop() {
       disposed = true
+      requestSerial += 1
       stopPolling()
       listeners.length = 0
     },

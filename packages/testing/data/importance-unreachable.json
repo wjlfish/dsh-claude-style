@@ -219,7 +219,7 @@
       "reason": "宿主的账户菜单与它的账户行：只在桌面外壳里出现，走查跑在网页外壳",
       "selectors": [
         "body[data-dsh-claude-style][data-ds-dark-theme] :is([data-dsh-claude-account-menu],[data-dsh-claude-hero-menu])",
-        "body[data-dsh-claude-style][data-dsh-claude-account-armed] div[role=menu][data-menu-material]:not([data-dsh-claude-account-ready])",
+        "body[data-dsh-claude-style][data-dsh-claude-account-armed] div[role=menu][data-menu-material][data-dsh-claude-account-menu]:not([data-dsh-claude-account-ready])",
         "body[data-dsh-claude-style] [data-dsh-claude-account-menu] [data-dsh-claude-part~=menu-footer]",
         "body[data-dsh-claude-style] [data-dsh-claude-account-menu] [data-dsh-claude-part~=menu-item-selected]"
       ]
@@ -294,6 +294,7 @@
         "body[data-dsh-claude-style] [data-dsh-claude-part~=center-column] [data-dsh-titlebar-tabs] [data-dsh-view-tabs]",
         "body[data-dsh-claude-style] [data-dsh-claude-part~=conversation-header][data-dsh-titlebar-tabs][data-dsh-claude-holds~=view-tabs]",
         "body[data-dsh-claude-style] [data-dsh-header-band~=title] [data-dsh-header-title]",
+        "body[data-dsh-claude-style] [data-dsh-header-band~=title] [data-dsh-header-trail]",
         "body[data-dsh-claude-style] [data-dsh-titlebar-tabs] [data-dsh-header-band-tabs]",
         "body[data-dsh-claude-style] [data-dsh-header-band~=title] [data-dsh-header-row]",
         "body[data-dsh-claude-style] [data-dsh-header-band~=title] [data-dsh-header-row] [data-dsh-claude-part~=header-label]",
@@ -339,8 +340,6 @@
     {
       "reason": "推理强度选择器：走查没有拖动它，也没有停在顶档",
       "selectors": [
-        "body[data-dsh-claude-style] .dsh-claude-effort-matrix-cell",
-        "body[data-dsh-claude-style] .dsh-claude-effort-matrix-sq",
         "body[data-dsh-claude-style] .dsh-claude-effort[data-dragging] .dsh-claude-effort-knob",
         "body[data-dsh-claude-style] .dsh-claude-effort[data-dragging] .dsh-claude-effort-fill",
         "body[data-dsh-claude-style] .dsh-claude-effort[data-empty] .dsh-claude-effort-track",

@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { BACKGROUND_OPACITY_DEFAULT, BACKGROUND_OPACITY_MAX, BACKGROUND_OPACITY_MIN, PALETTE_CLAUDE, PALETTE_HOST, TYPEFACE_CLAUDE, TYPEFACE_HOST } from '../../constants'
+import { BACKGROUND_OPACITY_DEFAULT, BACKGROUND_OPACITY_MAX, BACKGROUND_OPACITY_MIN, PALETTE_CLAUDE, PALETTE_HOST, TYPEFACE_CLAUDE, TYPEFACE_HOST, TYPEFACE_SYSTEM } from '../../constants'
 import { backgroundOpacityPercent } from '../../shared/background-opacity'
 import { brandRows, paletteCardsRow } from './settings-brand'
 import { PercentControl } from './settings-percent-control'
@@ -18,7 +18,9 @@ import type { SettingsRow, SettingsTab, SettingsView } from './settings-controls
  * page's own scale row shares its control with (settings-percent-control.ts),
  * writing the preference the canvas fills read as a colour mix toward
  * transparent (shared/background-opacity.ts). The row stands only under the
- * skin's own palette, like the colour cards above it.
+ * skin's own palette, like the colour cards above it, and only while a
+ * wallpaper plugin holds a layer behind the canvas for it to show through
+ * (theme/third-party.css reads that plugin's mark on the body).
  */
 function backgroundOpacityRow(view: SettingsView): SettingsRow {
   return {
@@ -38,7 +40,7 @@ function backgroundOpacityRow(view: SettingsView): SettingsRow {
         onPick: percent => { view.write({ backgroundOpacity: String(percent) }) },
         onReset: () => { view.write({ backgroundOpacity: BACKGROUND_OPACITY_DEFAULT }) },
       }),
-      { experimental: true },
+      { experimental: true, mark: 'backgroundOpacity' },
     ),
   }
 }
@@ -70,7 +72,11 @@ export function createSettingsAppearanceTab(): SettingsTab {
           'typeface',
           copy('typefaceTitle'),
           copy('typefaceDesc'),
-          controls.toggle(prefs.typeface !== TYPEFACE_HOST, on => { write({ typeface: on ? TYPEFACE_CLAUDE : TYPEFACE_HOST }) }),
+          controls.segment([
+            { value: TYPEFACE_CLAUDE, label: copy('typefaceClaude') },
+            { value: TYPEFACE_SYSTEM, label: copy('typefaceSystem') },
+            { value: TYPEFACE_HOST, label: copy('typefaceHost') },
+          ], prefs.typeface, value => { write({ typeface: value }) }),
         ),
       },
     ]

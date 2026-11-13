@@ -1,34 +1,16 @@
 /**
  * Message-content search for the browser half's search palette.
  *
- * What is searchable is the conversation itself: the messages the reader sent
- * and the text the model answered with. Injected context arrives as
- * `user/message` too — environment snapshots, the Skill catalog, AGENTS.md and
- * compaction checkpoints — and carries a `data.source.kind` other than `user`,
- * so it is left out; reasoning blocks and tool calls and results are other block
- * and event types and never enter the corpus.
+ * The corpus is the reader's own messages and the model's answers, matched the
+ * way the host's own `text` filter does: literal, case-insensitive, whitespace
+ * flexible — the host's content index matches whitespace-delimited tokens only,
+ * so part of a Chinese sentence never matches there, and it is off in the
+ * shipped web composition anyway.
  *
- * Reading. The host's own content index (`@deepseek-ai/dsh-session-query-sqlite`)
- * is off in the shipped web composition (`openAt: never`), and its `unicode61`
- * tokenizer matches whitespace-delimited tokens only, so part of a Chinese
- * sentence never matches there. This search reads history through the host's
- * query service instead and matches the way the service's own `text` filter
- * does — a literal, case-insensitive, whitespace-flexible scan.
- *
- * Caching. Each session's corpus is kept in memory and in
- * `$DSH_HOME/cache/dsh-claude-style/search/<sha256 of the id>.json` beside a
- * change token: the persistence revision for a stored log, the log length for a
- * session the host holds open. A warm start reads those files and re-reads only
- * the sessions whose token moved; a session the host holds open contributes only
- * the events appended since the last fold, because its log is in memory. The
- * first search on a machine with no cache reads every top-level session once.
- *
- * Everything here runs only while the reader has the search panel switched on:
- * the route is called by the palette alone, so a corpus is never built for a
- * reader who does not search.
- *
- * @param ctx - host plugin context.
- * @returns `{ search(query), warm() }`.
+ * `user/message` also carries injected context, which names itself in
+ * `data.source.kind`, so only `user` counts. Each session's corpus is cached
+ * beside a change token, so a warm start re-reads only what moved, and nothing
+ * is built unless the palette asks for a search or a prewarm.
  */
 
 /** Stored logs read at once while the cache catches up. */
@@ -44,13 +26,19 @@ export const QUERY_MAX = 200
 const CACHE_WRITE_INTERVAL_MS = 5000
 /**
  * How often the stored sessions may be listed. Listing opens every stored log's
- * header, which costs about a second across a few hundred sessions, so only the
- * palette's own prewarm asks for it and a repeat within this window reuses the
- * listing already held; a content query never lists at all.
+ * header, so only the palette's own prewarm asks for it and a repeat within this
+ * window reuses the listing already held.
  */
 const LIST_INTERVAL_MS = 2000
 /** The corpus cache document's version: a document from another build is discarded. */
 const CACHE_VERSION = 1
+/**
+ * Characters of lowercased text kept across sessions. A search reads every
+ * corpus, so keeping all of them lowercased would double the memory the
+ * corpora themselves take; the sessions a search just read stay at the end of
+ * the table and are the last to go.
+ */
+const LOWER_CACHE_CHARS = 4_000_000
 
 /**
  * The host services this module reads, and the shapes it keeps between reads.
@@ -119,8 +107,7 @@ import { readEvents } from '@dsh-claude-style/engine/node/session-events'
 /**
  * The query service's own text rule (dsh-session-query `compileSessionTextFilter`):
  * whitespace-separated parts, each escaped, joined by `\s+`, Unicode and
- * case-insensitive. A one-part query takes the `indexOf` path in `search()`,
- * which says the same thing for one part.
+ * case-insensitive.
  */
 function compileQuery(query: string) {
   const pattern = query
@@ -141,9 +128,8 @@ function messageText(content: ContentBlock[]) {
 }
 
 /**
- * Whether one `user/message` carries the reader's own words. The harness records
- * the context it injects as user messages too — environment snapshots, the Skill
- * catalog, AGENTS.md, compaction checkpoints — each naming itself in `source`.
+ * Whether one `user/message` carries the reader's own words: the harness records
+ * the context it injects as user messages too, each naming itself in `source`.
  */
 function isHumanMessage(event: LogEvent) {
   return event.data?.source?.kind === 'user'
@@ -187,11 +173,23 @@ function isStoredMessage(value: unknown): value is SearchMessage {
     && typeof message.text === 'string'
 }
 
+/**
+ * The search the palette's route serves.
+ *
+ * @param ctx - host plugin context.
+ * @returns `{ search(query), warm(), dispose() }`.
+ */
 export function createSessionSearch(ctx: DshContext) {
   /** Session id → its corpus. */
   const cache = new Map<string, CachedSession>()
-  /** Lowercased message text per session, built with the corpus and dropped with it. */
+  /**
+   * Lowercased message text per session, built by the first search that needs
+   * it and dropped by the newest one when the table is full: keeping it for
+   * every session doubled what the corpus itself holds.
+   */
   const lower = new Map<string, string[]>()
+  /** How many characters the lowercased table holds. */
+  let lowerChars = 0
   /** When each session's cache file was last written, for the write throttle. */
   const writtenAt = new Map<string, number>()
   /** The catch-up in flight, shared by the searches that arrive meanwhile, and whether it lists the store. */
@@ -233,7 +231,9 @@ export function createSessionSearch(ctx: DshContext) {
     // write the cache file of a plugin that is no longer installed.
     if (disposed) return
     cache.set(sessionId, entry)
-    lower.set(sessionId, entry.messages.map(message => message.text.toLowerCase()))
+    // The lowercased copy is built by the search that needs it: a session no
+    // query reaches never holds a second copy of its text.
+    forgetLower(sessionId)
     const now = Date.now()
     if (!force && now - (writtenAt.get(sessionId) ?? 0) < CACHE_WRITE_INTERVAL_MS) return
     writtenAt.set(sessionId, now)
@@ -245,11 +245,46 @@ export function createSessionSearch(ctx: DshContext) {
     })
   }
 
+  /** Drop one session's lowercased copy, with its characters from the table's count. */
+  function forgetLower(sessionId: string) {
+    const held = lower.get(sessionId)
+    if (held === undefined) return
+    for (const text of held) lowerChars -= text.length
+    lower.delete(sessionId)
+  }
+
+  /**
+   * One session's lowercased text, built the first time a search reads it and
+   * moved to the end of the table on every later read. A corpus larger than
+   * the whole table is answered for this query alone: it would evict every
+   * other session and be rebuilt on the next one.
+   */
+  function loweredFor(sessionId: string, entry: CachedSession) {
+    const held = lower.get(sessionId)
+    if (held !== undefined) {
+      lower.delete(sessionId)
+      lower.set(sessionId, held)
+      return held
+    }
+    const texts = entry.messages.map(message => message.text.toLowerCase())
+    let size = 0
+    for (const text of texts) size += text.length
+    if (size > LOWER_CACHE_CHARS) return texts
+    while (lowerChars + size > LOWER_CACHE_CHARS && lower.size > 0) {
+      const oldest = lower.keys().next().value
+      if (oldest === undefined) break
+      forgetLower(oldest)
+    }
+    lower.set(sessionId, texts)
+    lowerChars += size
+    return texts
+  }
+
   /** Drop one session's corpus from memory and from disk. */
   function forget(sessionId: string) {
     if (disposed) return
     cache.delete(sessionId)
-    lower.delete(sessionId)
+    forgetLower(sessionId)
     writtenAt.delete(sessionId)
     writeJsonDocument(ctx, cacheFile(sessionId), 'session search cache', null)
   }
@@ -271,9 +306,8 @@ export function createSessionSearch(ctx: DshContext) {
 
   /**
    * Bring the corpus level with the host. `store` is what the caller needs: a
-   * search over stored sessions lists them, a search that only wants the newest
-   * tail leaves the listing alone (it costs about a second across a few hundred
-   * sessions and only the palette's own prewarm pays it).
+   * search over stored sessions lists them, a tail-only pass leaves the listing
+   * alone.
    */
   async function refresh(store: boolean) {
     const persistence = ctx.get('sessionPersistence') as PersistenceService | null | undefined
@@ -314,7 +348,6 @@ export function createSessionSearch(ctx: DshContext) {
         continue
       }
       cache.set(id, entry)
-      if (!lower.has(id)) lower.set(id, entry.messages.map(message => message.text.toLowerCase()))
       if (want.live !== null) {
         if (entry.lastSeq > want.live.seq) stale.push(id)
         else if (entry.lastSeq < want.live.seq) {
@@ -349,9 +382,8 @@ export function createSessionSearch(ctx: DshContext) {
     if (refreshing !== null && (refreshingStore || !store)) return refreshing
     refreshingStore = store
     const pass = refresh(store)
-    // Only the pass that is still the current one clears the shared state: a
-    // store listing replaces a tail-only pass, and the older pass's own end
-    // must not open the door for a third one to run beside the newer.
+    // Only the pass that is still current clears the shared state: a store
+    // listing replaces a tail-only pass, whose end must not admit a third one.
     const done = pass.finally(() => {
       if (refreshing === done) {
         refreshing = null
@@ -376,7 +408,10 @@ export function createSessionSearch(ctx: DshContext) {
     const pattern = single === '' ? compileQuery(query) : null
     const hits: { sessionId: string, seq: number, time: number, role: string, snippet: string, match: [number, number] }[] = []
     for (const [sessionId, entry] of cache) {
-      const lowered = lower.get(sessionId) ?? []
+      // A multi-part query reads the corpus itself through the regex: the
+      // lowercased copy is what one part is matched on, and it is built only
+      // for the sessions a one-part query reaches.
+      const lowered = single === '' ? [] : loweredFor(sessionId, entry)
       for (let i = entry.messages.length - 1; i >= 0; i--) {
         const message = entry.messages[i]
         // One part is the common case, and a substring search over the
@@ -394,14 +429,14 @@ export function createSessionSearch(ctx: DshContext) {
   }
 
   /**
-   * The corpora this store holds. Each one is a whole session's message text,
-   * in original and folded case, so the store is dropped with the routes that
-   * serve it: a reloaded plugin builds a fresh one from the cache files.
+   * Drop the corpora with the routes that serve them: a reloaded plugin builds a
+   * fresh one from the cache files.
    */
   function dispose() {
     disposed = true
     cache.clear()
     lower.clear()
+    lowerChars = 0
     writtenAt.clear()
     stored = null
     refreshing = null

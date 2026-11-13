@@ -47,6 +47,8 @@ export interface SettingsView {
   username: {
     value: string
     onChange(e: React.ChangeEvent<HTMLInputElement>): void
+    onCompositionStart(e: React.CompositionEvent<HTMLInputElement>): void
+    onCompositionEnd(e: React.CompositionEvent<HTMLInputElement>): void
     onBlur(): void
     onKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void
   }
@@ -370,9 +372,10 @@ export function createSettingsControls() {
    * names: with no description either it is the control alone, across the row,
    * and with a note it carries that line over the cards. `sub`
    * marks a titled row that belongs to the row above it the same way, so the
-   * group keeps no hairline between its members.
+   * group keeps no hairline between its members. `mark` names the row on the
+   * element for a stylesheet that has to single it out.
    */
-  function row(key: string, title: string | null, description: React.ReactNode, control: React.ReactNode, options?: { block?: boolean, disabled?: boolean, sub?: boolean, experimental?: boolean }) {
+  function row(key: string, title: string | null, description: React.ReactNode, control: React.ReactNode, options?: { block?: boolean, disabled?: boolean, sub?: boolean, experimental?: boolean, mark?: string }) {
     const classes = ['dsh-claude-settings-row']
     if (options?.block) classes.push('dsh-claude-settings-row-block')
     else if (React.isValidElement(control) && control.type === ClaudeStyleSegmentGroup) classes.push('dsh-claude-settings-row-segment')
@@ -388,7 +391,7 @@ export function createSettingsControls() {
     const disabled = options?.disabled === true
     return React.createElement(
       'div',
-      { className: classes.join(' '), key, 'aria-disabled': disabled ? 'true' : undefined, 'data-disabled': disabled ? '' : undefined },
+      { className: classes.join(' '), key, 'aria-disabled': disabled ? 'true' : undefined, 'data-disabled': disabled ? '' : undefined, 'data-dsh-claude-settings-row': options?.mark },
       title === null && description === null ? null : rowText(title ?? '', description, options?.experimental),
       named,
     )

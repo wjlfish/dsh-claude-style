@@ -11,7 +11,7 @@
  * @risk A feature misses the host's change and the page stops following the conversation, or reacts to its own writes in a loop that never lets the page idle.
  */
 import { afterEach, expect, test } from 'vitest'
-import { observeMatches, observeSize, subscribeMutations } from '@dsh-claude-style/engine/bus'
+import { batchAdditions, observeMarker, observeMatches, observeSize, subscribeMutations } from '@dsh-claude-style/engine/bus'
 import { QUIET_ATTR } from '../../fixtures/vocabulary'
 
 /** The attribute these specs match on; the registry is told the selector. */
@@ -125,6 +125,20 @@ test('a page-wide subscription hears a change made inside a node removed in the 
   expect(seen).toContain('BODY')
 })
 
+test('a page-wide subscription hears nothing that changed outside its own subtree', async () => {
+  const seen: string[] = []
+  // The head watch the peer-plugin and sodium features keep: its records share
+  // the one observer's callback with the body's, and head is outside body.
+  cleanups.push(subscribeMutations(document.head, { childList: true, subtree: true }, () => {}))
+  cleanups.push(subscribeMutations(document.body, { childList: true, subtree: true }, records => seen.push(...records.map(record => `${record.type} on ${(record.target as Element).nodeName}`))))
+  const meta = document.createElement('meta')
+  document.head.append(meta)
+  await settle()
+  document.head.removeChild(meta)
+  await settle()
+  expect(seen).toEqual([])
+})
+
 test('a subscription hears nothing that changed before it was made', async () => {
   const root = host()
   const seen: MutationRecord[] = []
@@ -235,6 +249,34 @@ test('a match carried into the page with its own subtree in one batch is registe
   expect(matches.all()).toEqual([inner, sibling, inside])
 })
 
+test('registries of different selectors each keep their own matches from one large mount', async () => {
+  const second = 'data-test-probe-second'
+  const firstMatches = observeMatches<HTMLElement>(`[${PROBE}]`)
+  const secondMatches = observeMatches<HTMLElement>(`[${second}]`)
+  cleanups.push(() => firstMatches.release(), () => secondMatches.release())
+  // A batch over the weight a session switch mounts: these registries share one
+  // selection of it, and each must still hear only what its own selector matches.
+  const carrier = document.createElement('section')
+  const expectedFirst: Element[] = []
+  const expectedSecond: Element[] = []
+  for (let index = 0; index < 60; index += 1) {
+    const row = document.createElement('div')
+    const first = document.createElement('span')
+    first.setAttribute(PROBE, '')
+    const other = document.createElement('span')
+    other.setAttribute(second, '')
+    row.append(first, other)
+    carrier.append(row)
+    expectedFirst.push(first)
+    expectedSecond.push(other)
+  }
+  document.body.append(carrier)
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  await settle()
+  expect(firstMatches.all()).toEqual(expectedFirst)
+  expect(secondMatches.all()).toEqual(expectedSecond)
+})
+
 test('a match registry keeps the same array until a match changes', async () => {
   const root = host()
   const only = probed('i')
@@ -332,4 +374,94 @@ test('a registry listener hears every change of the set and nothing after its re
   root.append(probed('u'))
   await settle()
   expect(heard).toEqual([1, 2])
+})
+
+test('a registry listener hears the batch that removes a match, with nothing arriving', async () => {
+  const root = host()
+  const held = probed('i')
+  root.append(held)
+  const heard: Element[][] = []
+  const matches = observeMatches<HTMLElement>(`[${PROBE}]`, () => heard.push(matches.all()))
+  cleanups.push(() => matches.release())
+  held.remove()
+  // A reader of the set is told of the departure in that batch: a feature that
+  // keeps per-element subscriptions ends them here (message-fold).
+  await settle()
+  expect(heard).toHaveLength(1)
+  expect(heard[0]).toEqual([])
+})
+
+test('a marker registry follows an attribute that arrives on a node already standing', async () => {
+  const root = host()
+  const row = document.createElement('div')
+  root.append(row)
+  const markers = observeMarker(`[${PROBE}]`)
+  cleanups.push(() => markers.release())
+  expect(markers.all()).toEqual([])
+  row.setAttribute(PROBE, '')
+  await settle()
+  expect(markers.all()).toEqual([row])
+  row.removeAttribute(PROBE)
+  await settle()
+  expect(markers.all()).toEqual([])
+  row.setAttribute(PROBE, '')
+  await settle()
+  expect(markers.all()).toEqual([row])
+})
+
+test('a marker registry takes up what a batch mounts and drops what leaves with it', async () => {
+  const root = host()
+  const markers = observeMarker(`[${PROBE}]`)
+  cleanups.push(() => markers.release())
+  const box = document.createElement('section')
+  const inside = probed('i')
+  box.append(inside)
+  root.append(box)
+  await settle()
+  expect(markers.all()).toEqual([inside])
+  box.remove()
+  await settle()
+  expect(markers.all()).toEqual([])
+})
+
+test('a class marker follows the class list', async () => {
+  const root = host()
+  const card = document.createElement('div')
+  root.append(card)
+  const markers = observeMarker('.test-marker')
+  cleanups.push(() => markers.release())
+  card.classList.add('test-marker')
+  await settle()
+  expect(markers.all()).toEqual([card])
+  card.classList.remove('test-marker')
+  await settle()
+  expect(markers.all()).toEqual([])
+})
+
+test('a released marker registry stops answering', async () => {
+  const root = host()
+  const markers = observeMarker(`[${PROBE}]`)
+  root.append(probed('u'))
+  await settle()
+  expect(markers.all()).toHaveLength(1)
+  markers.release()
+  root.append(probed('v'))
+  await settle()
+  expect(markers.all()).toEqual([])
+})
+
+test('one batch answers every subscriber with the same additions', async () => {
+  const root = host()
+  const seen: unknown[] = []
+  cleanups.push(subscribeMutations(root, { childList: true }, (records) => seen.push(batchAdditions(records))))
+  cleanups.push(subscribeMutations(root, { childList: true, subtree: true }, (records) => seen.push(batchAdditions(records))))
+  const node = document.createElement('section')
+  const inside = document.createElement('i')
+  node.append(inside)
+  root.append(node)
+  await settle()
+  expect(seen).toHaveLength(2)
+  // The same object, derived once: a feature reading it does not walk the batch.
+  expect(seen[0]).toBe(seen[1])
+  expect((seen[0] as { added: Element[] }).added).toEqual([node])
 })

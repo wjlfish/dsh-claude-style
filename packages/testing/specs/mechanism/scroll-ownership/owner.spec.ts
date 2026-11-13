@@ -1,9 +1,7 @@
 /**
- * Who may move the conversation (D40, D71): writes and eases are ranked by
- * source, the reader's own wheel, key or scrollbar drag holds the conversation
- * against every following source until they come back to its end, the hold is
- * marked on the container for the stylesheet, and reduced motion writes an
- * ease's destination at once.
+ * Who may move the conversation (D40, D85): writes and eases are ranked by source,
+ * and the reader's own wheel, key or scrollbar drag holds the conversation against
+ * every following source until they come back to its end, marked on the container.
  *
  * @capability scroll-ownership
  * @features engine
@@ -11,7 +9,7 @@
  */
 import { afterEach, expect, test } from 'vitest'
 import { adoptSkin } from '@dsh-claude-style/engine/skin'
-import { easeScrollFor, easeScrollToEndFor, holdReader, readerHolds, readerMovedSince, releaseReader, submissionHolds, writeScroll } from '@dsh-claude-style/engine/scroll-owner'
+import { easeScrollFor, easeScrollToEndFor, holdReader, readerHolds, readerMovedSince, readerScrollPosition, releaseReader, submissionHolds, writeScroll } from '@dsh-claude-style/engine/scroll-owner'
 import { CONVERSATION_SCROLL_SELECTOR, CONVERSATION_SESSION_ATTRIBUTE, CONVERSATION_SESSION_SELECTOR, FLOW_KIND_ATTRIBUTE, PHASE_ATTRIBUTE, PROCESS_BODY_SELECTOR, USER_ROW_KIND } from '@dsh-claude-style/contracts/dom'
 import { MOTION_FULL, MOTION_REDUCED, READER_HOLD_ATTR, TEST_SKIN } from '../../fixtures/vocabulary'
 import { createScrollOwnerFixture } from '../../fixtures/scroll-owner'
@@ -87,12 +85,15 @@ test('the reader holds the conversation until they come back to its end; only fo
   expect(readerHolds(scroller)).toBe(true)
   expect(scroller.hasAttribute(READER_HOLD_ATTR)).toBe(true)
   expect(easeScrollToEndFor(scroller, 'follow', wanted)).toBe(false)
-  expect(writeScroll(scroller, 50, 'composer')).toBe(true)
+  expect(writeScroll(scroller, scroller.scrollHeight, 'composer')).toBe(false)
+  expect(scroller.scrollTop).toBe(0)
+  expect(writeScroll(scroller, 50, 'reader')).toBe(true)
   // Content growing under the hold cannot drag them back to the end.
   ;(scroller.firstElementChild as HTMLElement).style.height = '3000px'
   await holdOutlastsHostWrite(scroller)
   expect(scroller.hasAttribute(READER_HOLD_ATTR)).toBe(false)
   expect(easeScrollToEndFor(scroller, 'follow', wanted)).toBe(true)
+  expect(writeScroll(scroller, scroller.scrollHeight, 'composer')).toBe(true)
 })
 
 test('a press or a wheel outside the conversation is no hold on it: the follow keeps going', () => {
@@ -127,6 +128,25 @@ test('a hold whose position lands at the end stands until the reader moves towar
   holdReader(scroller)
   // The jump's landing is the end: a position written there is not their move back.
   await holdOutlastsHostWrite(scroller)
+})
+
+test('the reader position survives the host pinning a growing stream to its end', async () => {
+  join()
+  const scroller = scrollBox(CONVERSATION_SCROLL_SELECTOR)
+  scroller.scrollTop = scroller.scrollHeight
+  await settledScroll(scroller)
+  scroller.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -120 }))
+  scroller.scrollTop = 400
+  await settledScroll(scroller)
+  expect(readerScrollPosition(scroller)).toBe(400)
+  ;(scroller.firstElementChild as HTMLElement).style.height = '3000px'
+  scroller.scrollTop = scroller.scrollHeight
+  await settledScroll(scroller)
+  expect(readerHolds(scroller)).toBe(true)
+  expect(readerScrollPosition(scroller)).toBe(400)
+  expect(writeScroll(scroller, readerScrollPosition(scroller)!, 'reader')).toBe(true)
+  await settledScroll(scroller)
+  expect(scroller.scrollTop).toBe(400)
 })
 
 test('a process body is held by a drag of its scrollbar, not by a press on its content', () => {
@@ -199,6 +219,51 @@ test('only intents that move a position count as the reader moving', () => {
   expect(readerMovedSince(since)).toBe(false)
   document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageDown', bubbles: true }))
   expect(readerMovedSince(since)).toBe(true)
+})
+
+test('scrollbar drag upward, upward keys, and content clicks keep the hold across growth pins', async () => {
+  setMotion(MOTION_FULL)
+  join()
+  const scroller = scrollBox(CONVERSATION_SCROLL_SELECTOR)
+  scroller.scrollTop = scroller.scrollHeight
+  await settledScroll(scroller)
+
+  // Dragging the conversation scrollbar upward from the very bottom keeps the hold even inside the 25px band.
+  const box = scroller.getBoundingClientRect()
+  scroller.dispatchEvent(new PointerEvent('pointerdown', { clientX: box.left + scroller.clientWidth + 2, clientY: box.bottom - 12, bubbles: true }))
+  scroller.scrollTop = scroller.scrollHeight - scroller.clientHeight - 10
+  await settledScroll(scroller)
+  expect(readerHolds(scroller)).toBe(true)
+  scroller.scrollTop = 420
+  await settledScroll(scroller)
+  document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
+  expect(readerHolds(scroller)).toBe(true)
+
+  // Clicking content or scrolling slightly down then up in history never lets a host growth pin drop the hold.
+  scroller.firstElementChild!.dispatchEvent(new PointerEvent('pointerdown', { clientX: box.left + 10, clientY: box.top + 10, bubbles: true }))
+  scroller.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: 40 }))
+  scroller.scrollTop = 460
+  await settledScroll(scroller)
+  ;(scroller.firstElementChild as HTMLElement).style.height = '3200px'
+  scroller.scrollTop = scroller.scrollHeight
+  await settledScroll(scroller)
+  expect(readerHolds(scroller)).toBe(true)
+  expect(readerScrollPosition(scroller)).toBe(460)
+  expect(writeScroll(scroller, readerScrollPosition(scroller)!, 'reader')).toBe(true)
+  await settledScroll(scroller)
+
+  // Dragging the scrollbar all the way back to the bottom releases the hold.
+  scroller.dispatchEvent(new PointerEvent('pointerdown', { clientX: box.left + scroller.clientWidth + 2, clientY: box.top + 40, bubbles: true }))
+  scroller.scrollTop = scroller.scrollHeight
+  await settledScroll(scroller)
+  document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
+  expect(readerHolds(scroller)).toBe(false)
+
+  // Upward scroll keys at the tail do not release on the first smooth-scroll step.
+  document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }))
+  scroller.scrollTop = scroller.scrollHeight - scroller.clientHeight - 8
+  await settledScroll(scroller)
+  expect(readerHolds(scroller)).toBe(true)
 })
 
 test('once the last member leaves, intents are no longer heard', () => {

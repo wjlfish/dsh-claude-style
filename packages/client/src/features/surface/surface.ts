@@ -9,6 +9,7 @@ import { onModelCopyLoaded } from '../model/model-copy'
 import { mountStylesheet } from '../../core/stylesheet'
 import { buildElement, createStamp, setAttributeIfChanged } from '@dsh-claude-style/engine/dom'
 import { dsBotInstalled, dsBotSurfaceActive, subscribePageOwner } from '../../shared/visual-owner'
+import { hostTooltip } from '../../shared/host-tooltip'
 import { inPagePixels } from '../../shared/page-zoom'
 import { copy } from './copy'
 
@@ -99,8 +100,9 @@ export function install() {
     button.setAttribute('role', 'radio')
     button.innerHTML = ICONS[mode]
     button.addEventListener('click', () => choose(mode))
-    root.appendChild(button)
-    return { mode, button }
+    const tip = hostTooltip(button, copy(mode === 'chat' ? 'surfaceChat' : 'surfaceCode'), { side: 'bottom' })
+    root.appendChild(tip.node)
+    return { mode, button, tip }
   })
   /** The web's sidebar row holding the switch, which takes a third column for it. */
   const rowStamp = createStamp('data-dsh-claude-surface-row')
@@ -146,13 +148,20 @@ export function install() {
 
   function writeCopy() {
     setAttributeIfChanged(root, 'aria-label', copy('surfaceSwitch'))
-    for (const { mode, button } of options) {
+    for (const { mode, button, tip } of options) {
       const label = mode === 'chat' ? copy('surfaceChat') : copy('surfaceCode')
       setAttributeIfChanged(button, 'aria-label', label)
-      setAttributeIfChanged(button, 'title', label)
+      tip.setLabel(label)
     }
   }
 
+  /**
+   * Take the switch off the page. Its tooltips stay mounted: sync seats the
+   * switch again whenever the page's shape allows, and a released root answers
+   * the setLabel that follows with React's "cannot update an unmounted root",
+   * leaving its anchor — and the option inside it — undrawn for good. They are
+   * released with the feature, in the teardown below.
+   */
   function detach() {
     root.remove()
     rowStamp.release()
@@ -297,6 +306,7 @@ export function install() {
     overlay?.removeEventListener('geometrychange', schedule)
     if (stopColumnSize !== null) stopColumnSize()
     detach()
+    for (const { tip } of options) tip.release()
     body.removeAttribute(SURFACE_ATTR)
     body.removeAttribute(SWITCHING_ATTR)
     stopSheet()
