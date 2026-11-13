@@ -499,3 +499,16 @@ export {
 
 /** Placement state for the sidebar's native status cell; the host remains its state owner. */
 export const SIDEBAR_STATUS_ATTR = 'data-dsh-claude-row-status'
+/**
+ * On the seat the skin keeps in the sidebar's top row for another plugin's tab
+ * strip (features/brand/sidebar-row-seat.ts). The mark is the seat's whole
+ * contract: a plugin portals into the node carrying it, and the stylesheet draws
+ * the row as Claude Code's switch row while the seat holds a strip.
+ */
+export const SIDEBAR_TAB_SEAT_ATTR = 'data-dsh-claude-sidebar-tabseat'
+/**
+ * On `<body>` while the seat above holds a plugin's tab strip. The stylesheet
+ * then draws that row as the switch row; with nothing portalled into the seat
+ * the row stays the one the host drew.
+ */
+export const SIDEBAR_TABS_ATTR = 'data-dsh-claude-sidebar-tabs'

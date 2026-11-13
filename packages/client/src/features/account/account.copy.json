@@ -3,5 +3,8 @@
   "accountSettingsRow": { "zh": "设置", "en": "Settings" },
   "footerPluginRow": { "zh": "插件", "en": "Plugin" },
   "collapseTitle": { "zh": "重绘账户区", "en": "Redraw the account area" },
-  "collapseDesc": { "zh": "设置入口收进账户弹层。", "en": "The settings entry moves into the account popover." }
+  "collapseDesc": { "zh": "设置入口收进账户弹层。", "en": "The settings entry moves into the account popover." },
+  "accountUsageRow": { "zh": "使用情况", "en": "Usage" },
+  "accountSignedIn": { "zh": "已登录", "en": "Signed in" },
+  "accountQuota": { "zh": "剩余额度 {amount}", "en": "Quota {amount}" }
 }

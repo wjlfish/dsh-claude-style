@@ -1,0 +1,8 @@
+{
+  "group": "fixes",
+  "order": 128,
+  "at": "2026-11-05",
+  "external": false,
+  "zh": "修复 macOS 桌面端收起侧栏时新建会话按钮与标题重叠",
+  "en": "Fix the new-session control overlapping the conversation title while the macOS desktop sidebar is hidden"
+}

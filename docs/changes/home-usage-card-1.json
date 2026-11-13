@@ -1,0 +1,8 @@
+{
+  "group": "improvements",
+  "order": 130,
+  "at": "2026-11-05",
+  "external": false,
+  "zh": "改善新会话首屏为 Claude 的问候语加输入框版式，使用情况移出页面中部",
+  "en": "Improve the new-conversation page to Claude's greeting and composer shape, moving usage out of its middle"
+}

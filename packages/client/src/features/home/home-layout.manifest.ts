@@ -14,6 +14,7 @@ export default {
     { file: 'home-overview.css', rank: 330 },
     { generated: 'heat-levels', rank: 335 },
     { file: 'home-models.css', rank: 340 },
+    { file: 'home-usage-dialog.css', rank: 342 },
   ],
   settingsRows: [{
     tab: 'appearance',

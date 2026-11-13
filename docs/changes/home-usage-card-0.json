@@ -1,0 +1,8 @@
+{
+  "group": "new",
+  "order": 129,
+  "at": "2026-11-05",
+  "external": false,
+  "zh": "新增个人信息菜单里的使用情况行，数字以单列呈现在菜单上方的卡片里",
+  "en": "Add a usage row to the personal-info menu, with its six figures in a card above the menu"
+}

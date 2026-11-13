@@ -6,6 +6,7 @@ import { createHostAccountMenu } from './host-menu'
 import { createHostMenuPlacement } from './menu-placement'
 import { createAccountProfile } from './profile'
 import { createAccountRows } from './rows'
+import { createUsageRow } from './usage-row'
 import { createAccountSurface } from './surface'
 import type { AccountSurfaceMode } from './surface'
 import { createAccountDrawer } from './account-drawer'
@@ -81,6 +82,22 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>) {
   // menu-placement.ts): its placement is the same at every page scale, and the
   // host writes its own over the skin's on later frames.
   const menuPlacement = createHostMenuPlacement({ trigger: hostMenu.trigger })
+  /**
+   * The usage summary, as one row of the card; absent when the home feature is
+   * switched off. The home feature can be switched off and on again (its
+   * layout choice is a preference), and a fresh install publishes a fresh
+   * handle, so the row follows the handle it is bound to.
+   */
+  let usageRow: ReturnType<typeof createUsageRow> | null = null
+  let usageSource: typeof ui.homeLayout = undefined
+  function syncUsageSource() {
+    const source = ui.homeLayout
+    if (source === usageSource) return
+    usageRow?.destroy()
+    usageRow = null
+    usageSource = source
+    usageRow = source === undefined ? null : createUsageRow({ source, onPick: closeSurface })
+  }
   const rows = createAccountRows({
     hostMenu,
     // Drawing the launcher's head is asynchronous and changes no DOM the
@@ -411,6 +428,7 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>) {
     menuPlacement.unwatch()
     if (footArea) mirror.clear(footArea)
     seats.clear()
+    usageRow?.sync(null, null)
   }
 
   /** The entry row's boxes, taken in the pass's read phase when the row already stands (D40). */
@@ -551,6 +569,11 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>) {
     // their icons painted beside the account row until the drawer had been
     // opened once. Only the mirroring needs a container to write into.
     mirror.sync(footArea)
+    // The usage summary takes the foot of the card: before the drawer's own
+    // settings row, or at the end of the container injected into the host's
+    // list (the host keeps its own rows after it).
+    syncUsageSource()
+    usageRow?.sync(surface.container(), surface.mode() === 'synthetic' ? drawer.settingsAnchor() : null)
     // A seated entry stands in the account row itself, so the row has to be
     // mounted before the copy has a place to go.
     if (entryRow !== null) seats.sync(footArea)
@@ -608,6 +631,7 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>) {
     profile.stop()
     unregisterPopover('account')
     mirror.stop()
+    usageRow?.destroy()
     dropAccountFooter(findFootArea())
   }
 }

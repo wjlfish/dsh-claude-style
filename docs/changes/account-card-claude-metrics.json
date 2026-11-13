@@ -1,0 +1,8 @@
+{
+  "group": "improvements",
+  "order": 133,
+  "at": "2026-11-05",
+  "external": false,
+  "zh": "按 Claude Desktop 的账户卡片重排左下账户菜单，账户名与额度两行、行高与图标放大",
+  "en": "Restyle the bottom-left account card to Claude Desktop metrics with two header lines naming the account and its balance, and larger rows and icons"
+}

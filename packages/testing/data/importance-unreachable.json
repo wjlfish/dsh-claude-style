@@ -523,6 +523,16 @@
       "selectors": [
         "body[data-dsh-claude-style][data-ds-dark-theme] .dsh-claude-search-key"
       ]
+    },
+    {
+      "reason": "宿主插件页（插件市场/插件管理）的折叠页头：临时宿主里没有这个页面，选择器只在桌面宿主的 [data-plugin-panel] 上匹配",
+      "selectors": [
+        "body[data-dsh-claude-style][data-dsh-claude-page-zoom] [data-plugin-panel] [data-plugin-bar]",
+        "body[data-dsh-claude-style][data-dsh-claude-page-zoom] [data-plugin-panel] [data-plugin-bar]::before",
+        "body[data-dsh-claude-style][data-dsh-claude-page-zoom] [data-plugin-panel] [data-plugin-bar] > header",
+        "body[data-dsh-claude-style][data-dsh-claude-page-zoom] [data-plugin-panel] [data-plugin-bar] > header > div:first-child",
+        "body[data-dsh-claude-style][data-dsh-claude-page-zoom] [data-plugin-panel] [data-plugin-bar] [data-plugin-header-part]"
+      ]
     }
   ]
 }

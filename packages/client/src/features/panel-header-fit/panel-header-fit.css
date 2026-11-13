@@ -1,0 +1,40 @@
+/* ---------- panel pages at a page scale: the measured head laid out statically ---------- */
+/* The host's plugin page clones its header bar, measures each part in viewport
+   pixels and writes those numbers back as page lengths for a sticky, clipped
+   head (the title, intro, toolbar and tab strip hang off --plugin-part-x/y and
+   --plugin-header-rest-height). The page's own scale is applied twice: the
+   clone is sized from the already-scaled rectangle, and the numbers read are
+   physical while the CSS consumes page pixels. At 0.8 the strip lands a fifth
+   too high and covers the intro. Below, while the page is scaled, the parts
+   return to the flow and the sticky/clip machinery is dropped; at 100% the
+   zoom attribute is absent and the host keeps its collapsing head. */
+body[data-dsh-claude-style][data-dsh-claude-page-zoom] [data-plugin-panel] [data-plugin-bar] {
+  position: static !important;
+}
+
+body[data-dsh-claude-style][data-dsh-claude-page-zoom] [data-plugin-panel] [data-plugin-bar]::before {
+  display: none !important;
+}
+
+body[data-dsh-claude-style][data-dsh-claude-page-zoom] [data-plugin-panel] [data-plugin-bar] > header {
+  height: auto !important;
+  position: relative !important;
+  clip-path: none !important;
+}
+
+/* The measured head flattens its heading box (`display: contents`) so the parts
+   can be placed absolutely; in the flow the heading must own its two lines
+   again, so the title and the intro stay stacked. */
+body[data-dsh-claude-style][data-dsh-claude-page-zoom] [data-plugin-panel] [data-plugin-bar] > header > div:first-child {
+  display: block !important;
+}
+
+body[data-dsh-claude-style][data-dsh-claude-page-zoom] [data-plugin-panel] [data-plugin-bar] [data-plugin-header-part] {
+  position: static !important;
+  left: auto !important;
+  top: auto !important;
+  width: auto !important;
+  margin: 0 !important;
+  translate: none !important;
+  clip-path: none !important;
+}

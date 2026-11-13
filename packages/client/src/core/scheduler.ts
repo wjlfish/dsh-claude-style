@@ -4,6 +4,7 @@ import { onHdslLoaded, onUsernameLoaded } from '../shared/identity'
 import { onModelCopyLoaded } from '../features/model/model-copy'
 import { loadPrefs, refreshMotionAttribute, subscribePrefs } from './prefs'
 import type { HostContext } from '@dsh-claude-style/engine/host'
+import type { HomeLayoutHandle } from '../features/home/home-layout'
 import type { FooterHandle } from '../features/account/account-footer'
 import type { BanHandle } from '../features/ban-screen/ban-screen'
 import type { ChatFoldHandle } from '../features/chat-fold/chat-fold'
@@ -22,7 +23,8 @@ import type { QuickProvidersHandle } from '../features/settings/quick-providers'
 export interface Handles {
   brand: FeatureHandle
   composer: ComposerHandle
-  homeLayout: FeatureHandle
+  homeLayout: HomeLayoutHandle
+  panelHeaderFit: FeatureHandle
   homeRipple: FeatureHandle
   mascot: FeatureHandle
   permissions: FeatureHandle

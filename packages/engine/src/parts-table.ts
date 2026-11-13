@@ -44,6 +44,7 @@ export const FRAME_PARTS: PartTable = {
 
 /** The sidebar, from its slot anchor down. */
 export const SIDEBAR_PARTS: PartTable = {
+  topStrip: 'top-strip',
   logoRow: 'logo-row',
   brand: 'brand-button',
   brandIdentity: 'brand-identity',

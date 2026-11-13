@@ -192,6 +192,9 @@ export function createAccountRows(options: { hostMenu: HostAccountMenu, openBan(
     const rowEl = buildElement('div', 'dsh-claude-account-popover-row')
 
     const nameEl = buildElement('div', 'dsh-claude-account-popover-name', username)
+    // Claude's card names the account on one line and the plan (here the
+    // remaining balance) on the next; both are the card's own ink.
+    const subEl = buildElement('div', 'dsh-claude-account-popover-sub')
 
     const divider = buildElement('div', 'dsh-claude-account-popover-divider')
     // The role is what the shared separator rule reads (shared/popover.css), so
@@ -199,6 +202,7 @@ export function createAccountRows(options: { hostMenu: HostAccountMenu, openBan(
     divider.setAttribute('role', 'separator')
 
     rowEl.appendChild(nameEl)
+    rowEl.appendChild(subEl)
     header.appendChild(rowEl)
     header.appendChild(divider)
     return header
@@ -241,6 +245,20 @@ export function createAccountRows(options: { hostMenu: HostAccountMenu, openBan(
   }
 
   /**
+   * The balance the account menu's second line shows, read from what the
+   * balance chip in the footer already renders (the API-usage plugin's own
+   * chip): the skin does not read that plugin's state, it only mirrors the
+   * figure the reader can already see, and falls back to a plain sign-in line
+   * when no chip is mounted.
+   */
+  function accountQuota() {
+    const slot = document.querySelector('[data-slot="sidebar.footer.action"]')
+    if (slot === null) return null
+    const match = (slot.textContent || '').match(/[¥￥$]\s?\d[\d.,]*/)
+    return match === null ? null : match[0].replace(/\s+/g, '')
+  }
+
+  /**
    * Sync the header of the active container: the nickname and the easter
    * egg's binding. Bound OUTSIDE the build branch so the pass that creates
    * the container already wires the row; `__dshBanBound` keeps a later pass
@@ -251,6 +269,12 @@ export function createAccountRows(options: { hostMenu: HostAccountMenu, openBan(
     const nameEl = root.querySelector('.dsh-claude-account-popover-name')
     const username = accountDisplayName(hostRow)
     if (nameEl && nameEl.textContent !== username) nameEl.textContent = username
+    const subEl = root.querySelector('.dsh-claude-account-popover-sub')
+    if (subEl) {
+      const quota = accountQuota()
+      const wanted = quota === null ? copy('accountSignedIn') : copy('accountQuota', { amount: quota })
+      if (subEl.textContent !== wanted) subEl.textContent = wanted
+    }
     const rowEl = root.querySelector<HTMLElement>('.dsh-claude-account-popover-row')
     if (rowEl !== null) syncBanEntry(rowEl)
     const banRow = root.querySelector<HTMLElement>('[data-dsh-claude-ban-row]')

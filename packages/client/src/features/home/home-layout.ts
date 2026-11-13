@@ -1,21 +1,37 @@
 import * as React from 'react'
 import * as ReactDOM from 'react-dom/client'
 import { PHASE_ATTRIBUTE } from '@dsh-claude-style/contracts/dom'
-import { HOME_HERO_ATTR, HOME_LAYOUT_ATTR, HOME_LAYOUT_STUDIO, PREF_DEFAULTS } from '../../constants'
+import { HOME_HERO_ATTR, HOME_LAYOUT_ATTR, HOME_LAYOUT_OFF, HOME_LAYOUT_STUDIO, PREF_DEFAULTS } from '../../constants'
 import type { Prefs } from '../../constants'
 import { COMPOSER_STACK, cacheFirstMatch, registerSlotEntries } from '@dsh-claude-style/engine/host'
 import { readPrefs } from '../../core/prefs'
 import { pageHidden, subscribePageHidden } from '../../core/page-visibility'
 import { motionMs } from '../../shared/motion'
-import { HOME_RANGES, createHomeUsage, homePanelData } from './data'
+import { formatCompactTokens } from '../../shared/format'
+import { HOME_RANGES, createHomeUsage, formatHomeCount, homePanelData } from './data'
 import { createGreetingCopy } from './greeting-copy'
+import { createUsageDialog } from './home-usage-dialog'
 import { createHomeModels } from './models'
 import { createHomeOverview } from './overview'
 import { buildElement } from '@dsh-claude-style/engine/dom'
 import type { HostContext, HostFiber } from '@dsh-claude-style/engine/host'
+import type { FeatureHandle } from '@dsh-claude-style/engine/scheduler'
+import type { HomeUsage } from './home-store'
 import type { FeatureUi } from '../../core/feature'
 import type manifest from './home-layout.manifest'
 import { copy } from './copy'
+
+/**
+ * The feature's handle: the layout pass, plus the usage roll-up the
+ * personal-info menu reads. The menu owns its own card; the skin keeps one
+ * store so the dashboard panel and that card never disagree.
+ */
+export interface HomeLayoutHandle extends FeatureHandle {
+  usage: HomeUsage
+  /** Open the usage dialog the personal-info menu asks for. */
+  openUsage(): void
+  usageRows(): { key: string, label: string, value: string }[]
+}
 
 /**
  * The home page's second layout, and the usage panel that fills it.
@@ -78,6 +94,7 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>) {
   let coldSeat: { stack: Element, element: HTMLElement, root: ReactDOM.Root } | null = null
 
   const usage = createHomeUsage(ctx)
+  const usageDialog = createUsageDialog({ usage })
   const overview = createHomeOverview()
   const models = createHomeModels()
 
@@ -322,7 +339,27 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>) {
   window.addEventListener('focus', onWindowWake)
   const stopWatchingVisibility = subscribePageHidden(hidden => { if (!hidden) onWindowWake() })
 
-  ui.homeLayout = { sync }
+  /**
+   * The feature's handle for the account area: the roll-up store and the six
+   * figures the home page reports, so the personal-info menu can show the same
+   * numbers in its own card without a second read of the route.
+   */
+  ui.homeLayout = {
+    sync,
+    usage,
+    openUsage() { usageDialog.open() },
+    usageRows() {
+      const data = homePanelData(usage.state(), usage.list(), 'all', bookPick)
+      return [
+        { key: 'sessions', label: copy('homeSessions'), value: data.sessions === null ? '—' : formatHomeCount(data.sessions) },
+        { key: 'calls', label: copy('homeCalls'), value: data.calls === null ? '—' : formatHomeCount(data.calls) },
+        { key: 'tokens', label: copy('homeTokens'), value: formatCompactTokens(data.tokens) },
+        { key: 'days', label: copy('homeActiveDays'), value: data.activeDays === null ? '—' : formatHomeCount(data.activeDays) },
+        { key: 'peak', label: copy('homePeakHour'), value: data.peakHour === null ? '—' : data.peakHour },
+        { key: 'model', label: copy('homeTopModel'), value: data.model === null ? '—' : data.model },
+      ]
+    },
+  }
 
   registerPanel()
   setLayout(readPrefs().homeLayout)
@@ -331,6 +368,7 @@ export function install(ctx: HostContext, ui: FeatureUi<typeof manifest>) {
     window.removeEventListener('focus', onWindowWake)
     stopWatchingVisibility()
     unmountColdSeat()
+    usageDialog.destroy()
     usage.stop()
     greeting.restore()
     document.body.removeAttribute(HOME_LAYOUT_ATTR)

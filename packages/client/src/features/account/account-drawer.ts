@@ -33,6 +33,8 @@ export function createAccountDrawer(options: {
   // would tear the popover down behind the overlay; a click-opened popover
   // instead stays until the pointer leaves the whole footer.
   let popoverOpenedByClick = false
+  /** While a separate card is open over this menu, its hover dismissal is suspended. */
+  let popoverHeld = false
 
   function isPopoverOpen() {
     return !!(accountPopover && accountPopover.getAttribute('data-open') === 'true')
@@ -81,6 +83,7 @@ export function createAccountDrawer(options: {
   }
 
   function scheduleClosePopover() {
+    if (popoverHeld) return
     popoverHoverIntent.scheduleClose()
   }
 
@@ -234,6 +237,18 @@ export function createAccountDrawer(options: {
     cancelClose: cancelClosePopover,
     /** Leave what stands open standing (the hold screen's opening). */
     holdOpen() { popoverOpenedByClick = true },
+    /**
+     * Suspend the hover dismissal while another card is open over this menu
+     * (the usage card in rows/usage-row.ts). The card crosses the menu's edge
+     * on its way up; without this the move to the card would close the menu.
+     */
+    hold(held: boolean) {
+      popoverHeld = held
+      if (held) {
+        cancelClosePopover()
+        popoverOpenedByClick = true
+      }
+    },
     /** Place the open popover over its trigger, for the rail and the reposition route. */
     placeOpen: positionAccountPopover,
     /** Build or reuse the trigger and popover; the pass calls this on the synthetic path. */

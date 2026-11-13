@@ -28,6 +28,8 @@
 | [D80](D80-cost-snapshot-and-channel.md) | 价格与时段快照走仓库，会话费用由宿主半计价 |  |
 | [D81](D81-page-scale-carries-host-cards.md) | 页面缩放留在样式表，宿主的浮层拿回一像素对一像素的空间 |  |
 | [D83](D83-task-continuity-and-temporary-files.md) | 工单用于延续任务，临时文件独立退役 | D82 |
+| [D84](D84-sidebar-top-row-seat.md) | 侧栏顶行的座位交给第三方插件，隐藏的侧栏从红绿灯旁的打开按钮探出 |  |
+| [D85](D85-home-hero-keeps-claude-shape.md) | 首屏保持 Claude 的版式，使用情况收进左下角卡片 |  |
 
 ## 作废的编号
 

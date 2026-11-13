@@ -3,7 +3,7 @@ import type { FeatureManifest } from '../../core/feature'
 export default {
   id: 'footer',
   order: 120,
-  reads: ['ban'],
+  reads: ['ban', 'homeLayout'],
   contracts: ['shell.account-trigger', 'shell.foot-area', 'shell.footer-actions', 'shell.menu', 'shell.menu-list', 'shell.modal-dialog', 'shell.settings-button', 'footer.plugin-entry-part', 'footer.plugin-entry-owner', 'footer.plugin-entry-update'],
   pref: 'collapseFooter',
   stylesheets: [

@@ -1,0 +1,8 @@
+{
+  "group": "fixes",
+  "order": 132,
+  "at": "2026-11-05",
+  "external": false,
+  "zh": "修复页面缩放下宿主插件页的折叠页头压住简介、页签条错位",
+  "en": "Fix the host plugin page's collapsing header covering its intro and displacing the tab strip when the page is scaled"
+}

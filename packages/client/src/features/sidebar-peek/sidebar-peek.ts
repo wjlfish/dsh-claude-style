@@ -1,6 +1,6 @@
-import { RIGHTBAR_COLLAPSED_ATTRIBUTE, SIDEBAR_BESIDE_RIGHTBAR_MIN_PX, SIDEBAR_COLLAPSED_ATTRIBUTE, SIDEBAR_DRAWER_ATTRIBUTE, WINDOWS_MENU_START_PROPERTY } from '@dsh-claude-style/contracts/dom'
+import { FRAME_LEADING_CLEARANCE_PROPERTY, RIGHTBAR_COLLAPSED_ATTRIBUTE, SIDEBAR_BESIDE_RIGHTBAR_MIN_PX, SIDEBAR_COLLAPSED_ATTRIBUTE, SIDEBAR_DRAWER_ATTRIBUTE, WINDOWS_MENU_START_PROPERTY } from '@dsh-claude-style/contracts/dom'
 import { observeMatches, subscribeMutations } from '@dsh-claude-style/engine/bus'
-import { findForeground, findSidebarRoot, findSidebarToggle, hostLayout } from '@dsh-claude-style/engine/host'
+import { findForeground, findSidebarLeadingOpen, findSidebarRoot, findSidebarToggle, hostLayout } from '@dsh-claude-style/engine/host'
 import type { HostContext } from '@dsh-claude-style/engine/host'
 import { MOTION_ATTR, MOTION_REDUCED, SIDEBAR_PEEK_ATTR, SIDEBAR_PEEK_CLOSING, SIDEBAR_PEEK_OPEN, SIDEBAR_PEEK_RAIL_PROPERTY, SIDEBAR_PEEK_WIDTH_PROPERTY } from '../../constants'
 import { motionMs } from '../../shared/motion'
@@ -27,7 +27,7 @@ import { FRAME_SELECTOR } from '../../shared/page-scale-columns'
  */
 
 /** How long the pointer rests on the toggle before the sidebar opens: a pointer passing over on its way to the caption row opens nothing. */
-const OPEN_DELAY_MS = 120
+const OPEN_DELAY_MS = 80
 /** How long the pointer may stand outside the toggle and the column before the sidebar closes: the Windows caption strip between the two hands the pointer to the shell for a moment. */
 const LEAVE_DELAY_MS = 300
 
@@ -65,13 +65,40 @@ export function install(ctx: HostContext) {
   let offFrame: (() => void) | null = null
   /** The inline value the document element carried before the peek held the menu's start, or null while nothing is held. */
   let menuBefore: string | null = null
+  /** The inline value the frame carried before the peek held the desktop leading clearance, or null while nothing is held. */
+  let clearanceBefore: string | null = null
   let pointer: Point | null = null
   let openTimer: number | undefined
   let leaveTimer: number | undefined
   let closeTimer: number | undefined
+  /**
+   * A press on one of the controls landed the pointer on this spot, and the
+   * sidebar it hid puts the other control under the same pointer: a pointerover
+   * follows from that render, and hovering the spot must not undo the press it
+   * just heard. Cleared when the pointer leaves the controls, which is when a
+   * fresh hover opens the peek again.
+   */
+  let pressedHere = false
 
   const collapsed = (box: HTMLElement) => box.hasAttribute(SIDEBAR_COLLAPSED_ATTRIBUTE)
   const column = () => frame?.querySelector<HTMLElement>(COLUMN_SELECTOR) ?? null
+
+  /**
+   * The controls the pointer opens the peek from: the toggle of a column that
+   * leaves a rail, and the sidebar-open control the macOS desktop mounts beside
+   * the traffic lights while the column is hidden. The desktop keeps its hidden
+   * column mounted at nothing, so both stand in the page and the pointer's own
+   * target says which one it is on.
+   */
+  function triggers() {
+    return [findSidebarToggle(), findSidebarLeadingOpen()].filter((control): control is HTMLElement => control !== null)
+  }
+
+  /** The one of them the target belongs to, or null. */
+  function controlAt(target: EventTarget | null) {
+    if (!(target instanceof Node)) return null
+    return triggers().find(control => control.contains(target)) ?? null
+  }
 
   /**
    * Whether the frame's own flow still holds the collapsed column: a drawer
@@ -121,6 +148,28 @@ export function install(ctx: HostContext) {
     menuBefore = null
   }
 
+  /**
+   * The macOS desktop insets the window chrome on a hidden sidebar to clear the
+   * controls standing beside the traffic lights. Opening the column for a peek
+   * removes that inset, and the header row it insets would jump sideways while
+   * the column only stands over the page; the inset is held for the peek's
+   * lifetime, so the page behind the overlay keeps the geometry it had.
+   */
+  function holdLeadingClearance() {
+    if (frame === null) return
+    const value = getComputedStyle(frame).getPropertyValue(FRAME_LEADING_CLEARANCE_PROPERTY).trim()
+    if (value === '') return
+    clearanceBefore = frame.style.getPropertyValue(FRAME_LEADING_CLEARANCE_PROPERTY)
+    frame.style.setProperty(FRAME_LEADING_CLEARANCE_PROPERTY, value)
+  }
+
+  function releaseLeadingClearance() {
+    if (frame === null || clearanceBefore === null) return
+    if (clearanceBefore === '') frame.style.removeProperty(FRAME_LEADING_CLEARANCE_PROPERTY)
+    else frame.style.setProperty(FRAME_LEADING_CLEARANCE_PROPERTY, clearanceBefore)
+    clearanceBefore = null
+  }
+
   function clearTimers() {
     window.clearTimeout(openTimer)
     window.clearTimeout(leaveTimer)
@@ -140,6 +189,7 @@ export function install(ctx: HostContext) {
       frame.style.removeProperty(SIDEBAR_PEEK_RAIL_PROPERTY)
       frame.style.removeProperty(SIDEBAR_PEEK_WIDTH_PROPERTY)
     }
+    releaseLeadingClearance()
     releaseMenuStart()
     frame = null
     opened = false
@@ -176,6 +226,7 @@ export function install(ctx: HostContext) {
     }
     frame = box
     phase = 'open'
+    holdLeadingClearance()
     holdMenuStart()
     box.style.setProperty(SIDEBAR_PEEK_RAIL_PROPERTY, `${center.offsetLeft}px`)
     box.setAttribute(SIDEBAR_PEEK_ATTR, SIDEBAR_PEEK_OPEN)
@@ -206,8 +257,9 @@ export function install(ctx: HostContext) {
 
   function inside() {
     if (pointer === null) return false
-    const toggle = findSidebarToggle()
-    if (toggle !== null && within(toggle.getBoundingClientRect(), pointer)) return true
+    for (const control of triggers()) {
+      if (within(control.getBoundingClientRect(), pointer)) return true
+    }
     const box = column()
     return box !== null && within(box.getBoundingClientRect(), pointer)
   }
@@ -234,9 +286,8 @@ export function install(ctx: HostContext) {
   }
 
   function onPointerOver(event: PointerEvent) {
-    if (phase !== 'idle') return
-    const toggle = findSidebarToggle()
-    if (toggle === null || !(event.target instanceof Node) || !toggle.contains(event.target)) return
+    if (phase !== 'idle' || pressedHere) return
+    if (controlAt(event.target) === null) return
     const box = frames.all()[0] ?? null
     if (box === null || !canOpen(box)) return
     phase = 'waiting'
@@ -250,22 +301,23 @@ export function install(ctx: HostContext) {
       judge(false)
     }
     if (phase !== 'waiting') return
-    const toggle = findSidebarToggle()
-    if (toggle !== null && event.relatedTarget instanceof Node && toggle.contains(event.relatedTarget)) return
+    if (controlAt(event.relatedTarget) !== null) return
     window.clearTimeout(openTimer)
     openTimer = undefined
     phase = 'idle'
   }
 
   function onPointerMove(event: PointerEvent) {
-    pointer = { x: event.clientX, y: event.clientY }
+    const point = { x: event.clientX, y: event.clientY }
+    pointer = point
+    if (pressedHere && triggers().every(control => !within(control.getBoundingClientRect(), point))) pressedHere = false
     judge(event.buttons !== 0)
   }
 
   /** Before the host hears it: a click on the toggle while the sidebar stands over the page keeps it open. */
   function onClickCapture(event: MouseEvent) {
-    const toggle = findSidebarToggle()
-    if (toggle === null || !(event.target instanceof Node) || !toggle.contains(event.target)) return
+    if (controlAt(event.target) === null) return
+    pressedHere = true
     if (phase === 'waiting') {
       window.clearTimeout(openTimer)
       openTimer = undefined

@@ -363,10 +363,33 @@ export const SIDEBAR_BRAND_SELECTOR = '[data-slot="sidebar"] [data-dsh-claude-pa
 /** The New session button; the skin's standalone search button takes the next row. */
 export const SIDEBAR_NEW_SESSION_SELECTOR = '[data-slot="sidebar"] [data-dsh-claude-part~="new-session"]'
 /**
- * The sidebar's collapse toggle, inside the top row. The desktop shells fix it
- * into the caption strip; the web leaves it the row's last cell.
+ * The sidebar's top row: below the macOS desktop's caption strip, the web's
+ * first row. It holds the brand on the web and the toggle alone on the desktop;
+ * the skin seats a plugin's tab strip in it.
  */
-export const SIDEBAR_TOGGLE_SELECTOR = '[data-slot="sidebar"] [data-dsh-claude-part~="logo-row"] > [data-dsh-claude-part~="sidebar-toggle"]'
+export const SIDEBAR_LOGO_ROW_SELECTOR = '[data-slot="sidebar"] [data-dsh-claude-part~="logo-row"]'
+/**
+ * The seat the skin inserts into that row for a plugin's sidebar tabs: a stable
+ * node another plugin portals its tab strip into, so the strip stands where
+ * Claude Code keeps its Cowork / Code switch. The mark is the skin's own rather
+ * than a part, because the marking pass owns the part attribute inside this
+ * region and rewrites it on every walk.
+ */
+export const SIDEBAR_TAB_SEAT_SELECTOR = '[data-slot="sidebar"] [data-dsh-claude-part~="logo-row"] > [data-dsh-claude-sidebar-tabseat]'
+/**
+ * The sidebar's collapse toggle. It shares the top row with the brand on the
+ * web and sits in the macOS desktop's caption strip; the part marks the button
+ * in either place.
+ */
+export const SIDEBAR_TOGGLE_SELECTOR = '[data-slot="sidebar"] [data-dsh-claude-part~="sidebar-toggle"]'
+/**
+ * The frame's window-chrome seat beside the macOS traffic lights: while a
+ * desktop sidebar stands fully hidden, the host mounts the sidebar-open and
+ * New session controls there.
+ */
+export const SHELL_LEADING_SEAT_SELECTOR = '[data-shell-leading]'
+/** The sidebar-open control inside the window-chrome seat: the peek opens the hidden column from it. */
+export const SIDEBAR_LEADING_OPEN_SELECTOR = '[data-shell-leading] button'
 /** The host's own composer is replaced by a panel of its own choice; this is that panel's seat. */
 export const CHAIN_OVERLAY_FALLBACK_ATTRIBUTE = 'data-chain-overlay-fallback'
 /**
@@ -501,6 +524,12 @@ export const FULLSCREEN_ATTRIBUTE = 'data-fullscreen'
 export const WINDOWS_MENU_START_PROPERTY = '--dsh-windows-menu-start'
 /** The host's declared caption-strip height, as a custom property on the document element. */
 export const FRAME_TOP_CLEARANCE_PROPERTY = '--dsh-frame-top-clearance'
+/**
+ * The frame's leading inset for the window chrome: the macOS desktop widens it
+ * while the sidebar stands hidden, so the header row clears the controls beside
+ * the traffic lights. The peek holds it for its lifetime.
+ */
+export const FRAME_LEADING_CLEARANCE_PROPERTY = '--dsh-frame-leading-clearance'
 /** The skin center's stamp on the document element: another skin owns the page (D74). */
 export const SKIN_CENTER_ATTRIBUTE = 'data-dsh-skin'
 /** The host's own light/dark flip, written on `<body>`. */

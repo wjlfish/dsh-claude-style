@@ -1,0 +1,8 @@
+{
+  "group": "improvements",
+  "order": 125,
+  "at": "2026-11-05",
+  "external": false,
+  "zh": "改善侧栏探出的出现速度与流畅度并保持页面其它部分不动",
+  "en": "Improve how quickly and smoothly the sidebar peek appears while the rest of the page stays put"
+}

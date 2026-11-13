@@ -1,6 +1,7 @@
 import { BRAND_INK_ACCENT, BRAND_INK_ATTR, BRAND_INK_ORIGINAL, BRAND_INK_TEXT, CUSTOM_MARK_ATTR, CUSTOM_PALETTE_ATTR, CUSTOM_TINT_ATTR, CUSTOM_WORD_ATTR, CUSTOM_WORD_IMAGE, CUSTOM_WORD_TEXT, PALETTE_COLORING_CUSTOM } from '../../constants'
 import { readPrefs, subscribePrefs } from '../../core/prefs'
 import { loadBrandImages, readBrandImages, resetBrandImages, subscribeBrandImages } from '../../shared/custom-brand'
+import { installSidebarRowSeat } from './sidebar-row-seat'
 import { PALETTE_CARDS } from 'virtual:dsh-claude-style/generated'
 
 /**
@@ -113,11 +114,15 @@ export function install() {
   const offImages = subscribeBrandImages(apply)
   loadBrandImages()
   apply()
+  // The top row keeps a seat for another plugin's tab strip; it outlives the
+  // preferences above, because what fills it is the other plugin's.
+  const stopRowSeat = installSidebarRowSeat()
 
   return () => {
     offPrefs()
     offImages()
     resetBrandImages()
+    stopRowSeat()
     for (const name of ATTRIBUTES) body.removeAttribute(name)
     for (const name of PROPERTIES) body.style.removeProperty(name)
   }

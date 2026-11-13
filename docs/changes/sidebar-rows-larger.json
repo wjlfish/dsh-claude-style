@@ -1,0 +1,8 @@
+{
+  "group": "improvements",
+  "order": 131,
+  "at": "2026-11-05",
+  "external": false,
+  "zh": "加高侧栏顶部的新会话与各菜单行，并按 Claude Code 的样式给新会话行加底色",
+  "en": "Enlarge the sidebar's New session and menu rows, and give New session Claude Code's filled plate"
+}

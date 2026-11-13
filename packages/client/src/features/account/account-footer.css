@@ -431,3 +431,65 @@ body[data-dsh-claude-style] .dsh-claude-account-popover-body {
   overflow-y: auto;
   overflow-x: hidden;
 }
+
+/* ---------- the account card in Claude's own metrics ---------- */
+/* Claude Desktop's account menu names the account on two quiet lines and
+   gives every entry the same 34px row, 15px label and 16px glyph. The same
+   numbers are stated for both account surfaces this skin draws: the self-built
+   drawer's rows (the shared popover item) and the rows of a host's own menu
+   (marked while it is open). */
+body[data-dsh-claude-style] .dsh-claude-account-popover-name {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary, #6b6b6b);
+}
+body[data-dsh-claude-style] .dsh-claude-account-popover-sub {
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary, #6b6b6b);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+body[data-dsh-claude-style] .dsh-claude-account-popover .dsh-claude-popover-item,
+body[data-dsh-claude-style] [data-dsh-claude-account-menu] [data-dsh-claude-part~="menu-item"] > [role="menuitem"] {
+  min-height: 34px;
+  height: 34px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  gap: 10px;
+  border-radius: 8px;
+  font-size: 15px;
+  line-height: 20px;
+}
+body[data-dsh-claude-style] .dsh-claude-account-popover .dsh-claude-popover-item-icon,
+body[data-dsh-claude-style] [data-dsh-claude-account-menu] [data-dsh-claude-part~="menu-item"] > [role="menuitem"] :is(svg, [class*="icon"]) {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: currentColor;
+}
+body[data-dsh-claude-style] .dsh-claude-account-popover kbd,
+body[data-dsh-claude-style] [data-dsh-claude-account-menu] kbd {
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary, #6b6b6b);
+  font-family: var(--dsw-font-family);
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+}
+
+/* The header names the account on two lines (the nickname, then the plan or
+   the remaining balance), the way Claude's card does — the row is a column,
+   and the easter egg's plate covers both lines. */
+body[data-dsh-claude-style] .dsh-claude-account-popover-row {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0;
+  height: auto;
+  min-height: 36px;
+}

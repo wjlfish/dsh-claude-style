@@ -96,6 +96,10 @@
     "packages/client/src/features/permissions/stray-nodes.ts": {
       "count": 3,
       "reason": "The first pass of an install reads the control's nodes a previous generation left in the document (a client reload drops its disposals); later passes work from the nodes the feature holds."
+    },
+    "packages/client/src/features/account/rows.ts": {
+      "count": 1,
+      "reason": "账户卡片的第二行读侧栏底栏动作位里插件自己渲染的余额数字（只镜像读者看得到的那个数，没有就退回一行登录状态）；这个座位没有引擎访问器，也不随插件卸载变更"
     }
   }
 }

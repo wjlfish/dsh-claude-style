@@ -74,7 +74,20 @@ export function homeDayKey(date: Date) {
  *
  * @returns accessors, the loads, and a stop that ends the reads and listeners.
  */
-export function createHomeUsage(ctx: HostContext) {
+/** The usage roll-up's store face: one source for the dashboard panel and the corner card. */
+export interface HomeUsage {
+  state(): HomeUsageState
+  list(): ListSummary | null
+  listLoading(): boolean
+  subscribe(listener: () => void): () => void
+  notify(): void
+  load(force?: boolean): void
+  refresh(reason: HomeRefreshReason): boolean
+  loadList(): void
+  stop(): void
+}
+
+export function createHomeUsage(ctx: HostContext): HomeUsage {
   /** What the panel draws: the last answer, whether more is coming, and why not. */
   const usage: HomeUsageState = { value: null, computing: false, error: null, loading: false, answeredAt: null }
   let listSummary: ListSummary | null = null

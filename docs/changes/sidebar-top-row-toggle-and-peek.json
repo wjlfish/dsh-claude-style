@@ -1,0 +1,8 @@
+{
+  "group": "improvements",
+  "order": 123,
+  "at": "2026-11-04",
+  "external": false,
+  "zh": "改善 macOS 桌面端侧栏的折叠按钮位置与隐藏后的探出交互",
+  "en": "Improve the macOS desktop sidebar's toggle placement and the peek of a hidden sidebar"
+}

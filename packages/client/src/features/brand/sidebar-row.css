@@ -1,0 +1,120 @@
+/* ---------- sidebar top row: the tab seat ---------- */
+/* Claude Code Desktop keeps the Cowork / Code switch on the row below its
+   caption strip, above New. The skin gives that row to a plugin's tab strip:
+   the host brand steps aside here in every layout, and features/brand/
+   sidebar-row-seat.ts inserts the seat another plugin portals into. The row
+   itself becomes the switch row only while the seat holds a strip
+   (`SIDEBAR_TABS_ATTR` on the body), so a page without such a plugin keeps the
+   host's own row. */
+body[data-dsh-claude-style] [data-slot="sidebar"] [data-dsh-claude-part~="logo-row"] > [data-dsh-claude-part~="brand-button"] {
+  display: none;
+}
+
+/* The column is the anchor a plugin's own top-row control is laid against
+   (features/brand/sidebar-row.css, and dsh-activity's entry): a control that
+   stands beside the toggle in a host row can only be kept there by positioning
+   it inside the column, where every slide of the column carries it along. */
+body[data-dsh-claude-style] [data-slot="sidebar"] > [data-dsh-claude-part~="sidebar-root"] {
+  position: relative;
+}
+
+body[data-dsh-claude-style] [data-dsh-claude-sidebar-tabseat] {
+  display: none;
+  flex: 1 1 auto;
+  align-items: center;
+  min-width: 0;
+}
+
+body[data-dsh-claude-style][data-dsh-claude-sidebar-tabs] [data-slot="sidebar"] [data-dsh-claude-part~="logo-row"] > [data-dsh-claude-sidebar-tabseat] {
+  display: flex;
+}
+
+/* The web keeps the collapse toggle at the row's end, and a plugin's own
+   top-row action (the activity entry) stands between the toolbar and that
+   toggle. The toolbar gives that action its room instead of running under it:
+   one 28px control and its 8px gap. */
+html:not([data-platform="darwin"]):not([data-windows-titlebar]) body[data-dsh-claude-style][data-dsh-claude-sidebar-tabs] [data-slot="sidebar"] [data-dsh-claude-part~="logo-row"] > [data-dsh-claude-sidebar-tabseat] {
+  margin-right: 36px;
+}
+
+/* One line of controls between the caption strip and New session. The row is
+   the control's height plus 8px above and below: the switch itself is drawn at
+   36px in the page's pixels, a step above Claude Code's own control by the
+   reader's request, and the row grew with it (46 -> 54) so the switch keeps the
+   same breathing room it always had. The web keeps its collapse toggle at the
+   row's end; the desktop's caption strip owns that button, so the strip spans
+   the row there. */
+body[data-dsh-claude-style][data-dsh-claude-sidebar-tabs] [data-slot="sidebar"] [data-dsh-claude-part~="logo-row"] {
+  box-sizing: border-box;
+  height: 54px;
+  margin: 0 0 10px 0;
+  padding: 8px 0 8px 4px;
+  gap: 8px;
+  justify-content: flex-start;
+  align-items: center;
+}
+body[data-dsh-claude-style][data-dsh-claude-sidebar-tabs] [data-slot="sidebar"] [data-dsh-claude-part~="logo-row"] > [data-dsh-claude-part~="brand-button"] {
+  display: none;
+}
+
+/* No plugin fills the seat: macOS desktop has nothing left to draw on this row
+   and leaves it out, so New session follows the caption strip as it did. */
+html[data-platform="darwin"] body[data-dsh-claude-style]:not([data-dsh-claude-sidebar-tabs]) [data-slot="sidebar"] [data-dsh-claude-part~="logo-row"] {
+  display: none;
+}
+
+/* ---------- macOS caption strip: the toggle beside the traffic lights ---------- */
+/* Claude Code puts the sidebar switch at the left end of the caption strip,
+   right after the three window buttons; the host draws it at the strip's right
+   end. The window buttons stand in the shell's own pixels — the desktop places
+   them 16px in and 18px down, twelve pixels tall, so their centre is 24px below
+   the window's top — while the page draws at its own scale. Both the clearance
+   and the centre are therefore divided by that scale: the button's top is
+   `24 / scale - 14` in the page's pixels. Fullscreen drops the lights, and the
+   host's own start-aligned strip is already right. */
+html[data-platform="darwin"]:not([data-fullscreen]) body[data-dsh-claude-style] [data-slot="sidebar"] [data-dsh-claude-part~="top-strip"] {
+  justify-content: flex-start;
+  align-items: flex-start;
+  padding-left: calc(88px / var(--dsh-claude-page-zoom-factor, 1));
+  padding-top: calc(24px / var(--dsh-claude-page-zoom-factor, 1) - 14px);
+}
+
+/* The controls the host mounts beside the traffic lights while the sidebar
+   stands hidden take the same clearance and the same centre, so the peek opens
+   from the button the reader's pointer is on, wherever the page's scale puts it. */
+html[data-platform="darwin"]:not([data-fullscreen]) body[data-dsh-claude-style] [data-shell-leading] {
+  left: calc(88px / var(--dsh-claude-page-zoom-factor, 1));
+  top: calc(24px / var(--dsh-claude-page-zoom-factor, 1) - 14px);
+}
+
+/* ---------- macOS caption row at the reader's own scale ---------- */
+/* The desktop keeps the window's buttons and the conversation header in one
+   caption row: the host draws that header 40px tall with a 10px top inset, so
+   at a page scale of one the title row centres 25px below the window's top,
+   on the buttons' own line. The buttons do not scale with the page and the
+   host's numbers do: at 80% the title rides 4px above them. The title row is
+   30px of the header's 40, so its centre follows from the inset alone — the
+   inset that centres it on the buttons at any scale is `24 / scale - 15`, and
+   the header grows with it rather than letting the row spill onto the
+   conversation. The buttons themselves sit 16px in and 18px down in the
+   window's pixels (the desktop's own traffic-light position), twelve pixels
+   tall: centre 24px below the top. Fullscreen drops the buttons, and the host's
+   own row is then right as it stands. */
+html[data-platform="darwin"]:not([data-fullscreen]) body[data-dsh-claude-style] [data-dsh-claude-part~="host-root"] > [data-slot="conversation.header"] > [data-dsh-claude-part~="conversation-header"] {
+  /* Title row on the buttons' centre line, then air under it before the rule
+     the header closes on: the row used to end flush with that rule. */
+  height: max(40px, calc(24px / var(--dsh-claude-page-zoom-factor, 1) + 15px + 10px));
+  padding-top: max(0px, calc(24px / var(--dsh-claude-page-zoom-factor, 1) - 15px));
+  padding-bottom: 10px;
+}
+
+/* With the sidebar hidden, the host insets the title row past the controls it
+   mounts beside the traffic lights. That inset is a page length like every
+   other host number, while the controls are placed at the window's own pixels:
+   at 80% they end 11px past the inset and the title starts under the new-session
+   button. The inset is stated from the same geometry as the seat: the two 28px
+   controls and their 8px gap after the same 88px clearance, which is the host's
+   own 160px at a page scale of one. */
+html[data-platform="darwin"]:not([data-fullscreen]) body[data-dsh-claude-style] [data-dsh-claude-part~="layout-frame"][data-sidebar-collapsed] {
+  --dsh-frame-leading-clearance: calc(88px / var(--dsh-claude-page-zoom-factor, 1) + 72px);
+}

@@ -1,0 +1,8 @@
+{
+  "group": "fixes",
+  "order": 127,
+  "at": "2026-11-05",
+  "external": false,
+  "zh": "修复 macOS 桌面端会话标题与窗口按钮的垂直位置不对齐",
+  "en": "Fix the macOS desktop conversation title sitting off the line of the window buttons"
+}
