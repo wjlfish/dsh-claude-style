@@ -199,6 +199,17 @@ body[data-dsh-claude-style] button[data-dsh-claude-part~="panel-row"] {
 body[data-dsh-claude-style] [data-dsh-claude-part~="panel-entry"] button[data-dsh-claude-part~="panel-row"] {
   padding-inline: calc(10px - var(--dsh-sidebar-paint-inset, 3px));
 }
+/* The host's own panel-entry wrapper paints a hover plate of its slot (44px in
+   the page's pixels on DSH 0.2.2) under the 36px row plate the reader asked
+   for: the wrapper's band shows below the shorter row as a second, empty
+   plate. The row's own plate is the whole feedback here, so the wrapper stays
+   flat. */
+body[data-dsh-claude-style] [data-dsh-claude-part~="panel-entry"],
+body[data-dsh-claude-style] [data-dsh-claude-part~="panel-entry"]:hover,
+body[data-dsh-claude-style] [data-dsh-claude-part~="panel-entry"]:focus-within,
+body[data-dsh-claude-style] [data-dsh-claude-part~="panel-entry"]:active {
+  background: transparent;
+}
 body[data-dsh-claude-style] button[data-dsh-claude-part~="panel-row"]:hover {
   background: var(--dsh-claude-hover-bg, rgba(0, 0, 0, 0.08));
 }

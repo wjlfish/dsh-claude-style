@@ -16,10 +16,18 @@ body[data-dsh-claude-style][data-dsh-claude-page-zoom] [data-plugin-panel] [data
   display: none !important;
 }
 
+/* The host's resting head keeps 76px of the page above the title (the window's
+   own top inset plus the heading's air), and that space is part of what the
+   measured layout spends. Laid out in the flow the head would start at its own
+   top edge, so the same 76 page pixels come back as the head's own padding —
+   the page is scaled by its zoom, so this keeps the same look at every scale.
+   The number is the host's own title offset at 100% (--plugin-part-y on the
+   title part), which the stylesheet cannot read from its parent. */
 body[data-dsh-claude-style][data-dsh-claude-page-zoom] [data-plugin-panel] [data-plugin-bar] > header {
   height: auto !important;
   position: relative !important;
   clip-path: none !important;
+  padding-top: 76px;
 }
 
 /* The measured head flattens its heading box (`display: contents`) so the parts
